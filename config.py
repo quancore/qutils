@@ -22,9 +22,13 @@ class PostgreSQL:
     PGUSER = get_env("PGUSER")
     PGDATABASE = get_env("PGDATABASE")
     PGPASSWORD = get_env("PGPASSWORD")
+    DB_URL = get_env('DATABASE_URL')
 
     @classmethod
     def return_connection_str(cls):
+        if cls.DB_URL is not "":
+            return cls.DB_URL
+
         return f"postgresql: // cls.PGUSER:  cls.PGPASSWORD @ cls.PGHOST / cls.PGDATABASE"
 
 
