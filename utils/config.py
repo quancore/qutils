@@ -45,7 +45,7 @@ class Config:
             with open(self.name, 'r') as f:
                 self._db = json.load(f, object_hook=self.object_hook)
         except FileNotFoundError:
-            log.exception(f'File: self.name not found to load in.')
+            log.exception(f'File: {self.name} not found to load in.')
 
     async def load(self):
         async with self.lock:

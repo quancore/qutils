@@ -10,7 +10,6 @@ DEPLOY = bool(environ.get('DEPLOY'))
 def get_env(name: str, fallback: str = "") -> str:
     """Return an (optionally base64-encoded) env var."""
     variable = environ.get(name)
-    print(variable)
     if DEPLOY and variable is not None:
         variable = base64.b64decode(variable).decode()
     return variable or fallback
@@ -29,7 +28,7 @@ class PostgreSQL:
         if cls.DB_URL is not "":
             return cls.DB_URL
 
-        return f"postgresql: // cls.PGUSER:  cls.PGPASSWORD @ cls.PGHOST / cls.PGDATABASE"
+        return f"postgresql: // {cls.PGUSER}:  {cls.PGPASSWORD} @ {cls.PGHOST} / {cls.PGDATABASE}"
 
 
 BOT_TOKEN = get_env("BOT_TOKEN")
