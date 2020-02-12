@@ -4,6 +4,7 @@ An implementation of a logging.Handler for sending messages to Discord
 
 import datetime
 import logging
+import asyncio
 
 from config import LOGGING_CHANNEL_ID
 from discord import Color, Embed
@@ -56,4 +57,4 @@ class DiscordHandler(logging.Handler):
             self.log_channel = self.client.get_channel(LOGGING_CHANNEL_ID)
 
         # Create a task in the event loop to send the logging embed
-        self.client.loop.create_task(self.log_channel.send(embed=embed))
+        asyncio.ensure_future(self.client.loop.create_task(self.log_channel.send(embed=embed)))

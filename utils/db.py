@@ -15,8 +15,9 @@ import decimal
 import asyncpg
 import logging
 import asyncio
+import ssl
 
-log = logging.getLogger(__name__)
+log = logging.getLogger('root')
 
 
 class SchemaError(Exception):
@@ -423,7 +424,7 @@ class SchemaDiff:
 
         for added in path.get('add_columns', []):
             column = Column.from_dict(added)
-            sub_statements.append('ADD COLUMN ' + column.create_table())
+            sub_statements.append('ADD COLUMN ' + column._create_table())
 
         if sub_statements:
             statements.append(base + ', '.join(sub_statements) + ';')
@@ -452,7 +453,7 @@ class MaybeAcquire:
             return c
         return self.connection
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self,  exc_type, exc, tb):
         if self._cleanup:
             await self.pool.release(self._connection)
 
@@ -521,7 +522,11 @@ class Table(metaclass=TableMeta):
             if old_init is not None:
                 await old_init(con)
 
-        cls._pool = pool = await asyncpg.create_pool(uri, init=init, **kwargs)
+        ctx = ssl.create_default_context(cafile='./rds-combined-ca-bundle.pem')
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        cls._pool = pool = await asyncpg.create_pool(uri, ssl=ctx, init=init, **kwargs)
+
         return pool
 
     @classmethod
@@ -776,7 +781,7 @@ class Table(metaclass=TableMeta):
         column_creations = []
         primary_keys = []
         for col in cls.columns:
-            column_creations.append(col.create_table())
+            column_creations.append(col._create_table())
             if col.primary_key:
                 primary_keys.append(col.name)
 
@@ -791,6 +796,20 @@ class Table(metaclass=TableMeta):
                 statements.append(fmt)
 
         return '\n'.join(statements)
+
+    @classmethod
+    def get_col_names(cls, excluded=None, is_str=False):
+        """Return column name of a table as a comma separated string"""
+        if excluded is None:
+            excluded = []
+
+        valid_col_names = [column.name for column in cls.columns if column.name not in excluded]
+
+        if is_str:
+            valid_col_names = ', '.join(valid_col_names)
+
+        return valid_col_names
+
 
     @classmethod
     async def insert(cls, connection=None, **kwargs):
@@ -822,7 +841,7 @@ class Table(metaclass=TableMeta):
     @classmethod
     def to_dict(cls):
         x = {'name': cls.__tablename__, '__meta__': cls.__module__ + '.' + cls.__qualname__,
-             'columns': [a.to_dict() for a in cls.columns]}
+             'columns': [a._to_dict() for a in cls.columns]}
 
         # nb: columns is ordered due to the ordered dict usage
         #     this is used to help detect renames
@@ -912,7 +931,7 @@ class Table(metaclass=TableMeta):
                     upgrade.setdefault('changed_column_types', []).append({ 'name': a.name, 'type': a.column_type.to_sql() })
                     downgrade.setdefault('changed_column_types', []).append({ 'name': a.name, 'type': b.column_type.to_sql() })
                 else:
-                    a_dict, b_dict = a.to_dict(), b.to_dict()
+                    a_dict, b_dict = a._to_dict(), b._to_dict()
                     upgrade.setdefault('add_columns', []).append(a_dict)
                     upgrade.setdefault('remove_columns', []).append(b_dict)
                     downgrade.setdefault('remove_columns', []).append(a_dict)
@@ -920,7 +939,7 @@ class Table(metaclass=TableMeta):
                     check_index_diff(a, b)
                     return
 
-            elif a.is_rename(b):
+            elif a._is_rename(b):
                 upgrade.setdefault('rename_columns', []).append({ 'before': b.name, 'after': a.name })
                 downgrade.setdefault('rename_columns', []).append({ 'before': a.name, 'after': b.name })
 
@@ -982,7 +1001,7 @@ class Table(metaclass=TableMeta):
 
             # first we sort the columns by comparable IDs.
             sorted_before = sorted(before.columns, key=lambda c: c._comparable_id)
-            sorted_after  = sorted(self.columns, key=lambda c: c._comparable_id)
+            sorted_after = sorted(self.columns, key=lambda c: c._comparable_id)
 
             # handle the column diffs:
             for a, b in zip(sorted_after, sorted_before):

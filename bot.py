@@ -17,11 +17,12 @@ description = """
 Qutils bot provides several important utilities for the server.
 """
 
-log = logging.getLogger(__name__)
+log = logging.getLogger('root')
 
 initial_extensions = (
     'cogs.admin',
-    'cogs.general'
+    'cogs.general',
+    'cogs.remainder'
 )
 
 
@@ -66,7 +67,8 @@ class Qutils(commands.AutoShardedBot):
         # A counter to auto-ban frequent spammers
         # Triggering the rate limit 5 times in a row will auto-ban the user from the bot.
         self._auto_spam_count = Counter()
-
+        # remove default help command for a custom help
+        self.remove_command('help')
         for extension in initial_extensions:
             try:
                 self.load_extension(extension)

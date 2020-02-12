@@ -28,21 +28,54 @@ class PostgreSQL:
         if cls.DB_URL is not "":
             return cls.DB_URL
 
-        return f"postgresql: // {cls.PGUSER}:  {cls.PGPASSWORD} @ {cls.PGHOST} / {cls.PGDATABASE}"
+        return f"postgres://{cls.PGUSER}:{cls.PGPASSWORD}@{cls.PGHOST}:{cls.PGPORT}/{cls.PGDATABASE}"
 
 
 BOT_TOKEN = get_env("BOT_TOKEN")
 CLIENT_ID = get_env("CLIENT_ID")
 SENTRY_URL = get_env("SENTRY_URL")
 
-# channel settings
+# guild and channel settings
+GUILD_ID = int(environ.get("LOGGING_CHANNEL_ID", "648262260724203523"))
 LOGGING_CHANNEL_ID = int(environ.get("LOGGING_CHANNEL_ID", "648867664026009621"))
+ANNOUNCEMENT_CHANNEL_ID = int(environ.get("ANNOUNCEMENT_CHANNEL_ID", "653301549979795467"))
 
-# admin cog constants
+
+# ##### admin cog constants #######
+# ****** people **********
 OWNER_ID = '647577161200566289'
-STRANGER_ROLE_NAME = 'Yabancılar'
-ADMIN_ROLE_NAMES = ('Sahip', 'Yönetim')
 
+# ***** roles ***********
+# role given for newcomers who not approved and waiting in a reception
+STRANGER_ROLE_NAME = 'Yabancılar'
+# valid roles (higher is better)
+TIER1 = 'Çaylaklar'
+TIER2 = 'Tecrübeliler'
+TIER3 = 'Müdavimler'
+TIER4 = 'Yönetim'
+TIER5 = 'Sahip'
+# role that activity rule will be determined
+ACTIVITY_ROLE_NAME = 'Aktif'
+ADMIN_ROLE_NAMES = (TIER5, TIER4)
+GENDER_ROLE_NAMES = ('Hanimefendi', 'Beyefendi', 'LGBT+')
+# roles that activity rule will effect
+ACTIVITY_INCLUDED_ROLES = (TIER2, TIER1)
+
+# ***** constants ********
+# minimum number of needed days removing inactive members after last prune
+activity_schedule_gap = '5min'
+# minimum number of days passed since a member joined to be effected by activity rule
+activity_min_day = 7
+# text template for activity announcement
+activity_template = '{} tarihine kadar aktiflik sartini saglamaz veya yonetime mazeret ' \
+                    'bildirmez ise cikartilacak uye listesi'
+# role upgrade template
+role_upgrade_template = 'Tebrikler {}! {} rolunden {} rolune yukseldin!'
+# number of days for checking role upgrade
+role_upgrade_gap = '1d'
+# minimum number of days for role transitions
+TIER1toTIER2 = 60
+TIER2toTIER3 = 240
 
 # Fun constants
 # QUOTES_CHANNEL_ID = int(environ.get("QUOTES_CHANNEL_ID", "463657120441696256"))

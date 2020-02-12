@@ -22,60 +22,63 @@ postgres_config = PostgreSQL()
 
 
 @contextlib.contextmanager
-def setup_logging(bot):
+def setup_logging(name, bot):
     try:
         # __enter__
         logging.getLogger('discord').setLevel(logging.INFO)
         logging.getLogger('discord.http').setLevel(logging.WARNING)
 
-        file_logger = logging.getLogger()
-        discord_logger = logging.getLogger(__name__)
-
-        file_logger.setLevel(logging.INFO)
-        discord_logger.setLevel(logging.INFO)
+        logger = logging.getLogger(name)
 
         file_handler = logging.FileHandler(filename='qutils.log', encoding='utf-8', mode='w')
         dt_fmt = '%Y-%m-%d %H:%M:%S'
         fmt = logging.Formatter('[{asctime}] [{levelname:<7}] {name}: {message}', dt_fmt, style='{')
         file_handler.setFormatter(fmt)
 
-        file_logger.addHandler(file_handler)
-        discord_logger.addHandler(DiscordHandler(bot))
+        discord_handler = DiscordHandler(bot)
+
+        logger.addHandler(file_handler)
+        logger.addHandler(discord_handler)
+
+        logger.exception('Logging has been setup.')
+        logger.setLevel(logging.DEBUG)
 
         yield
+    except Exception as e:
+        print(e)
 
     finally:
-        def exit_logger(logger):
+        def exit_logger(_logger):
+            _logger.info('All handlers will be removed.')
             # __exit__
-            handlers = file_logger.handlers[:]
+            handlers = _logger.handlers[:]
             for handler in handlers:
                 handler.close()
-                file_logger.removeHandler(handler)
+                _logger.removeHandler(handler)
 
-        exit_logger(file_logger)
-        exit_logger(discord_logger)
+        exit_logger(logger)
 
 
 def run_bot():
     # create bot
     bot = Qutils()
-    setup_logging(bot)
+    with setup_logging('root', bot):
+        loop = asyncio.get_event_loop()
+        log = logging.getLogger('root')
+        bot.log = log
+        """Entry point for poetry script."""
+        sentry_sdk.init(SENTRY_URL)
 
-    loop = asyncio.get_event_loop()
-    log = logging.getLogger()
-
-    """Entry point for poetry script."""
-    sentry_sdk.init(SENTRY_URL)
-
-    try:
-        pool = loop.run_until_complete(Table.create_pool(postgres_config.return_connection_str(), command_timeout=60))
-    except Exception as e:
-        click.echo('Could not set up PostgreSQL. Exiting.', file=sys.stderr)
-        log.exception('Could not set up PostgreSQL. Exiting.')
-        return
-    else:
-        bot.pool = pool
-        bot.run()
+        try:
+            pool = loop.run_until_complete(Table.create_pool(postgres_config.return_connection_str(), command_timeout=60))
+        except Exception as e:
+            click.echo('Could not set up PostgreSQL. Exiting.', file=sys.stderr)
+            log.exception('Could not set up PostgreSQL. Exiting.')
+            return
+        else:
+            bot.pool = pool
+            bot.loop = loop
+            bot.run()
 
 
 @click.group(invoke_without_command=True, options_metavar='[options]')
@@ -96,7 +99,6 @@ def db():
 @click.option('-q', '--quiet', help='less verbose output', is_flag=True)
 def init(cogs, quiet):
     """This manages the migrations and database creation system for you."""
-
     run = asyncio.get_event_loop().run_until_complete
     try:
         run(Table.create_pool(postgres_config.return_connection_str()))
@@ -110,6 +112,7 @@ def init(cogs, quiet):
     try:
         load_extensions(cogs)
     except Exception:
+        click.echo(f'Extensions are not loaded.\n{traceback.format_exc()}', err=True)
         return
 
     for table in Table.all_tables():
@@ -231,8 +234,7 @@ def drop(cog, quiet):
     You must be pretty sure about this before you do it,
     as once you do it there's no coming back.
 
-    Also note that the name must be the database name, not
-    the cog name.
+    You need to give the cog name.
     """
 
     run = asyncio.get_event_loop().run_until_complete
@@ -245,7 +247,7 @@ def drop(cog, quiet):
         return
 
     try:
-        cog = load_extensions(cog)[0]
+        cog = load_extensions([cog])[0]
     except Exception:
         return
 
