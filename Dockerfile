@@ -24,6 +24,7 @@ RUN conda config --add channels conda-forge \
 COPY . /home/qutils/
 RUN chown -R myuser:myuser /home/qutils/*
 
+RUN echo "source activate disc" >> ~/.bashrc
 ENV PATH /opt/conda/envs/disc/bin:$PATH
 
 ## create conda environment
