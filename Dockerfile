@@ -34,7 +34,7 @@ ENV PATH /opt/conda/envs/disc/bin:$PATH
 #ENV PATH /opt/conda/envs/disc/bin:$PATH
 
 RUN conda env list | grep -v "^$\|#" |awk '{print $1;}'|xargs -I{} -d "\n" sh -c 'printf "Env: {}\t"; conda list -n {} |grep "^python\s";'
-RUN ls -l
+RUN which python
 
 # run the app
 CMD [ "python3", "launcher.py" ]
