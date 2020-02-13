@@ -1,4 +1,4 @@
-FROM heroku/miniconda
+FROM heroku/miniconda:3
 
 # create  working dir
 WORKDIR /home/qutils
