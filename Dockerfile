@@ -6,6 +6,9 @@ WORKDIR /home/qutils
 # copy files
 COPY . ./
 
+# update caonda
+RUN conda update conda
+
 # create conda environment
 RUN conda env create -f ./environment.yml
 
