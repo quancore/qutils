@@ -3,7 +3,7 @@
 import logging
 import asyncio
 import contextlib
-import sentry_sdk
+# import sentry_sdk
 import click
 import traceback
 import importlib
@@ -67,7 +67,7 @@ def run_bot():
         log = logging.getLogger('root')
         bot.log = log
         """Entry point for poetry script."""
-        sentry_sdk.init(SENTRY_URL)
+        # sentry_sdk.init(SENTRY_URL)
 
         try:
             pool = loop.run_until_complete(Table.create_pool(postgres_config.return_connection_str(), command_timeout=60))
