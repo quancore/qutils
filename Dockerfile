@@ -20,4 +20,4 @@ RUN conda env list | grep -v "^$\|#" |awk '{print $1;}'|xargs -I{} -d "\n" sh -c
 
 
 # run the app
-CMD [ "python3", "launcher.py" ]
+CMD [ "python", "launcher.py" ]
