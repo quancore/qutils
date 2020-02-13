@@ -17,4 +17,4 @@ RUN echo "source activate $(head -1 ./environment.yml | cut -d' ' -f2)" > ~/.bas
 ENV PATH /opt/conda/envs/$(head -1 ./environment.yml | cut -d' ' -f2)/bin:$PATH
 
 # run the app
-CMD [ "python3", "launcher.py" ]
+CMD [ "python", "launcher.py" ]
