@@ -28,7 +28,7 @@ WORKDIR /home/qutils
 
 # copy files
 COPY . /home/qutils/
-RUN chown -R myuser:myuser /home/qutils/*
+#RUN chown -R myuser:myuser /home/qutils/*
 
 #RUN echo "source activate disc" >> ~/.bashrc
 #ENV PATH /opt/conda/envs/disc/bin:$PATH
