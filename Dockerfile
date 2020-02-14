@@ -26,6 +26,7 @@ RUN chown -R myuser:myuser /home/qutils/*
 
 RUN echo "source activate disc" >> ~/.bashrc
 ENV PATH /opt/conda/envs/disc/bin:$PATH
+RUN /bin/bash -c "source activate disc"
 
 ## create conda environment
 #RUN conda env create -f ./environment.yml
