@@ -6,8 +6,8 @@ RUN conda update conda \
     && rm -rf /opt/conda/pkgs/*
 
 RUN echo "conda activate $(head -1 /tmp/environment.yml | cut -d' ' -f2)" >> ~/.bashrc
-ENV PATH $CONDA_DIR/envs/$(head -1 /tmp/environment.yml | cut -d' ' -f2)/bin:$PATH
-ENV CONDA_DEFAULT_ENV "$(head -1 /tmp/environment.yml | cut -d' ' -f2)"
+ENV PATH $CONDA_DIR/envs/${(head -1 /tmp/environment.yml | cut -d' ' -f2)}/bin:$PATH
+ENV CONDA_DEFAULT_ENV "${(head -1 /tmp/environment.yml | cut -d' ' -f2)}"
 
 
 ## Add the user that will run the app (no need to run as root)
@@ -44,8 +44,7 @@ COPY . /home/qutils/
 #RUN echo "source activate disc" >> ~/.bashrc
 #ENV PATH /opt/conda/envs/disc/bin:$PATH
 
-RUN conda env list | grep -v "^$\|#" |awk '{print $1;}'|xargs -I{} -d "\n" sh -c 'printf "Env: {}\t"; conda list -n {} |grep "^python\s";'
-RUN which python
+RUN conda env list
 
 # run the app
 CMD [ "python", "./launcher.py" ]
