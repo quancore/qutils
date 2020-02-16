@@ -6,7 +6,7 @@ RUN conda update conda \
     && rm -rf /opt/conda/pkgs/*
 
 RUN echo "conda activate $(head -1 /tmp/environment.yml | cut -d' ' -f2)" >> ~/.bashrc
-ENV PATH $CONDA_DIR/envs/"$(head -1 /tmp/environment.yml | cut -d' ' -f2)"/bin:$PATH
+ENV PATH $CONDA_DIR/envs/$(head -1 /tmp/environment.yml | cut -d' ' -f2)/bin:$PATH
 ENV CONDA_DEFAULT_ENV "$(head -1 /tmp/environment.yml | cut -d' ' -f2)"
 
 
