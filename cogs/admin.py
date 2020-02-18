@@ -676,10 +676,11 @@ class Admin(commands.Cog):
         if reminder is None:
             return log.exception('Role upgrade timer has not been handled.')
 
-        return await reminder.create_timer(role_upgrade_gap_dt.dt, 'role_upgrade', GUILD_ID,
-                                           json.dumps(tier1to2), json.dumps(tier2to3),
-                                           connection=self.bot.pool,
-                                           created=utc_today)
+        if not tier1to2 and not tier2to3:
+            return await reminder.create_timer(role_upgrade_gap_dt.dt, 'role_upgrade', GUILD_ID,
+                                               json.dumps(tier1to2), json.dumps(tier2to3),
+                                               connection=self.bot.pool,
+                                               created=utc_today)
 
     @commands.Cog.listener()
     async def on_role_upgrade_timer_complete(self, timer):

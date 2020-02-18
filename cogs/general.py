@@ -1,5 +1,6 @@
 import logging
 import random
+import string
 import typing
 
 
@@ -36,22 +37,22 @@ class General(commands.Cog):
         if isinstance(error, commands.MissingRequiredArgument):
             # Missing arguments are likely human error so do not need logging
             parameter_name = error.param.name
-            return await ctx.send(f"\N{NO ENTRY SIGN} Required argument {parameter_name} was missing")
+            return await ctx.send(f"\N{NO ENTRY SIGN} Required argument {parameter_name} was missing.\n {str(error)}")
         elif isinstance(error, commands.CheckFailure):
-            return await ctx.send("\N{NO ENTRY SIGN} You do not have permission to use that command")
+            return await ctx.send(f"\N{NO ENTRY SIGN} You do not have permission to use that command.\n {str(error)}")
         elif isinstance(error, commands.CommandOnCooldown):
             retry_after = round(error.retry_after)
-            return await ctx.send(f"\N{HOURGLASS} Command is on cooldown, try again after {retry_after} seconds")
+            return await ctx.send(f"\N{HOURGLASS} Command is on cooldown, try again after {retry_after} seconds.\n {str(error)}")
 
         # All errors below this need reporting and so do not return
 
         if isinstance(error, commands.ArgumentParsingError):
             # Provide feedback & report error
-            await ctx.send("\N{NO ENTRY SIGN} An issue occurred while attempting to parse an argument")
+            await ctx.send(f"\N{NO ENTRY SIGN} An issue occurred while attempting to parse an argument.\n {str(error)}")
         elif isinstance(error, commands.BadArgument):
-            await ctx.send("\N{NO ENTRY SIGN} Conversion of an argument failed")
+            await ctx.send(f"\N{NO ENTRY SIGN} Conversion of an argument failed.\n {str(error)}")
         else:
-            await ctx.send("\N{NO ENTRY SIGN} An error occured during execution, the error has been reported.")
+            await ctx.send(f"\N{NO ENTRY SIGN} An error occurred during execution, the error has been reported.\n {str(error)}")
 
         extra_context = {
             "discord_info": {
@@ -70,7 +71,7 @@ class General(commands.Cog):
         else:
             extra_context["discord_info"]["Message"] = f"{ctx.message.id} (DM)"
 
-        self.bot.log.exception(error, extra=extra_context)
+        log.exception(error, extra=extra_context)
 
     @commands.group(name='stats', help='Command group for getting several statistics of the server',
                     hidden=True)
@@ -78,28 +79,41 @@ class General(commands.Cog):
         pass
 
     @commands.command(name='user', help='Get user avatar with information',
-                      usage='user'
-                      'You can give member name or mention')
+                      usage='[@user or username]\n'
+                      'You can give member name or mention.')
     @commands.guild_only()
-    async def user(self, ctx, members: commands.Greedy[Member]):
-        if members is None:
-            return await self.cog_command_error(ctx, commands.BadArgument('Member is not given'))
+    async def user(self, ctx, members: commands.Greedy[Member], size: typing.Optional[str] = 's'):
+
+        if size == 's':
+            content_size = 1024
+        elif size == 'm':
+            content_size = 2048
+        elif size == 'l':
+            content_size = 4096
+        else:
+            raise commands.BadArgument('Size argument is not valid, please give: s.m or l')
+
+        if not members:
+            raise commands.BadArgument('No member is not given.')
 
         for member in members:
-            avatar_url = member.avatar_url
-            embed_dict = {'title': f'{member.mention}',
-                          'image': {'url': avatar_url},
-                          # 'fields': [
-                          #     {'name': "Operation type", 'value': 'Ban' if record['is_ban'] else 'Kick',
-                          #      'inline': False},
-                          #     {'name': 'Members will be discarded', 'value': member_list_str, 'inline': False},
-                          #     {'name': 'Exception members', 'value': exceptions_list_str, 'inline': False},
-                          #     {'name': 'Date of removal', 'value': record['expires'].strftime("%Y-%m-%d %H:%M:%S"),
-                          #      'inline': False},
-                          #     {'name': 'Reason', 'value': record['reason'], 'inline': False},
-                          # ],
+            avatar_url = str(member.avatar_url_as(size=content_size))
+            member_text = f"Joined: {member.joined_at.strftime('%Y-%m-%d %H:%M:%S')}\n" \
+                          f"Roles: {', '.join([role.name for role in member.roles if role.name != '@everyone'])}\n" \
+                          f"Status: {str(member.status)}"
+            embed_dict = {"title": "Avatar",
+                          "author": {
+                              "name": f"{member.display_name}",
+                              "icon_url": avatar_url
+                          },
+                          "image": {"url": avatar_url},
+                          'fields': [
+                              {'name': "Information", 'value': member_text, 'inline': False},
+                          ],
                           }
-            e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name, avatar_url=self.bot.user.avatar_url)
+            e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name,
+                                      avatar_url=self.bot.user.avatar_url,
+                                      is_thumbnail=False)
             await ctx.send(embed=e.to_embed())
 
     @stats.command(name='gender', help='Get server statistics based on gender',
@@ -111,12 +125,10 @@ class General(commands.Cog):
         filter_role = filter_role or await commands.RoleConverter().convert(ctx, ACTIVITY_ROLE_NAME)
 
         if filter_role is None:
-            return await self.cog_command_error(ctx, commands.BadArgument('Role name is not valid'))
+            raise commands.BadArgument('Role name is not valid.')
         else:
             if filter_role.name in GENDER_ROLE_NAMES:
-                return await self.cog_command_error(ctx,
-                                                        commands.BadArgument('You have given a gender role, please give another role.'))
-
+                raise commands.BadArgument('You have given a gender role, please give another role.')
 
         guild = ctx.guild
         total_member = total_filtered_member = 0

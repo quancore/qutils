@@ -173,7 +173,7 @@ class CustomEmbed(libEmbed):
         return Embed.from_dict(result)
 
     @classmethod
-    def from_dict(cls, data, author_name=None, avatar_url=None):
+    def from_dict(cls, data, is_thumbnail=True, author_name=None, avatar_url=None):
         """Converts a :class:`dict` to a :class:`Embed` provided it is in the
         format that Discord expects it to be in.
 
@@ -187,6 +187,8 @@ class CustomEmbed(libEmbed):
         -----------
         data: :class:`dict`
             The dictionary to convert into an embed.
+        is_thumbnail: :class:`bool`
+            Whether embed includes default thumbnail.
         author_name: :class:`str`
             The author name of a command if embed is a response a for the author.
         avatar_url: :class:`str`
@@ -235,7 +237,7 @@ class CustomEmbed(libEmbed):
         except KeyError:
             thumbnail = {}
 
-            if avatar_url:
+            if avatar_url and is_thumbnail:
                 thumbnail['url'] = str(avatar_url)
         finally:
             if 'url' in thumbnail or 'proxy_url' in thumbnail:
