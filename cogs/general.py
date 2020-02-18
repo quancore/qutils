@@ -3,8 +3,10 @@ import random
 import typing
 
 
-from discord import Embed, Color, Role
+from discord import Embed, Color, Role, Member
 from discord.ext import commands
+from utils.formats import CustomEmbed
+
 
 from utils.formats import colors
 from config import ACTIVITY_ROLE_NAME, GENDER_ROLE_NAMES, STRANGER_ROLE_NAME
@@ -23,19 +25,6 @@ class General(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         log.info(f'{self.bot.user.name} has connected to Discord!')
-        # self.bot.log.info(f'{self.bot.user.name} has connected to Discord!')
-        # print("Logged in as")
-        # print(self.bot.user.name)
-        # print(self.bot.user.id)
-        # print("------")
-        # message, *_ = latest.message.partition('\n')
-        # link = f'{next(repo.remote().urls)}/commit/{latest}'
-        # date = latest.authored_datetime.strftime('**%x** at **%X**')
-        # self.bot.log.info(
-        #     "CyberDiscovery bot is now logged in.\n"
-        #     f"Latest commit: **[{message}]({link})**"
-        #     f"\nAuthor: **{latest.author}** on {date}"
-        # )
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
@@ -88,6 +77,31 @@ class General(commands.Cog):
     async def stats(self, ctx):
         pass
 
+    @stats.command(name='user', help='Get user avatar with information',
+                   usage='user'
+                         'You can give member name or mention')
+    @commands.guild_only()
+    async def user(self, ctx, members: commands.Greedy[Member]):
+        if members is None:
+            return await self.cog_command_error(ctx, commands.BadArgument('Member is not given'))
+
+        for member in members:
+            avatar_url = member.avatar_url
+            embed_dict = {'title': f'{member.mention}',
+                          'image': {'url': avatar_url},
+                          # 'fields': [
+                          #     {'name': "Operation type", 'value': 'Ban' if record['is_ban'] else 'Kick',
+                          #      'inline': False},
+                          #     {'name': 'Members will be discarded', 'value': member_list_str, 'inline': False},
+                          #     {'name': 'Exception members', 'value': exceptions_list_str, 'inline': False},
+                          #     {'name': 'Date of removal', 'value': record['expires'].strftime("%Y-%m-%d %H:%M:%S"),
+                          #      'inline': False},
+                          #     {'name': 'Reason', 'value': record['reason'], 'inline': False},
+                          # ],
+                          }
+            e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name, avatar_url=self.bot.user.avatar_url)
+            await ctx.send(embed=e.to_embed())
+
     @stats.command(name='gender', help='Get server statistics based on gender',
                    usage='gender [optional @role]\n'
                          'If a role is given, an additional gender statistics '
@@ -97,13 +111,12 @@ class General(commands.Cog):
         filter_role = filter_role or await commands.RoleConverter().convert(ctx, ACTIVITY_ROLE_NAME)
 
         if filter_role is None:
-            await self.cog_command_error(ctx, commands.BadArgument('Role name is not valid'))
-            return
+            return await self.cog_command_error(ctx, commands.BadArgument('Role name is not valid'))
         else:
             if filter_role.name in GENDER_ROLE_NAMES:
-                await self.cog_command_error(ctx,
-                                             commands.BadArgument('You have given a gender role, please give another role.'))
-                return
+                return await self.cog_command_error(ctx,
+                                                        commands.BadArgument('You have given a gender role, please give another role.'))
+
 
         guild = ctx.guild
         total_member = total_filtered_member = 0
