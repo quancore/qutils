@@ -77,9 +77,9 @@ class General(commands.Cog):
     async def stats(self, ctx):
         pass
 
-    @stats.command(name='user', help='Get user avatar with information',
-                   usage='user'
-                         'You can give member name or mention')
+    @commands.command(name='user', help='Get user avatar with information',
+                      usage='user'
+                      'You can give member name or mention')
     @commands.guild_only()
     async def user(self, ctx, members: commands.Greedy[Member]):
         if members is None:
