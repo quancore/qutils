@@ -341,7 +341,7 @@ class Admin(commands.Cog):
             member_text = 'No member will be discarded'
 
         included_role_text = ', '.join([role for role in included_roles])
-        embed_dict = {'title': 'Operation summary', 'colour': Colour.red(),
+        embed_dict = {'title': 'Operation summary',
                       'fields': [{'name': "Operation type", 'value': 'Ban' if is_ban else 'Kick', 'inline': False},
                                  {'name': "Included Roles", 'value': included_role_text, 'inline': False},
                                  {'name': 'Members will be discarded', 'value': member_text, 'inline': False},
@@ -350,12 +350,9 @@ class Admin(commands.Cog):
                                  {'name': 'Reason', 'value': reason, 'inline': False},
                                  ],
                       }
-        # await ctx.send(embed=Embed.from_dict(embed_dict))
-        embed_factory = formats.EmbedGenerator(embed_dict, author_name=ctx.author.name,
-                                               avatar_url=self.bot.user.avatar_url)
-        nav = pag.EmbedNavigatorFactory(factory=embed_factory, max_lines=10)
-        nav += 'Confirmation screen'
-        nav.start(ctx)
+        e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name, avatar_url=self.bot.user.avatar_url)
+        await ctx.send(embed=e.to_embed())
+
         confirm = await ctx.prompt("Are you sure to schedule the event?")
         if confirm:
             activity_template_final = activity_template.format(duration.dt.strftime("%Y-%m-%d %H:%M:%S"))

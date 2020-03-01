@@ -299,6 +299,7 @@ class EmbedGenerator(pag.AbstractEmbedGenerator):
     def build_page(self, paginator: pag.Paginator, page: str, page_index: int) -> Embed:
         if self.embed_dict:
             embed = CustomEmbed.from_dict(self.embed_dict, self.author_name, self.avatar_url)
+            print(embed.to_dict())
         else:
             embed = Embed()
 
