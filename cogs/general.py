@@ -77,7 +77,8 @@ class General(commands.Cog):
 
     @commands.command(name='user', help='Get user avatar with information',
                       usage='[@user or username]\n'
-                            'You can give member name or mention.')
+                            'You can give member name or mention.',
+                      aliases=['u'])
     @commands.guild_only()
     async def user(self, ctx, members: commands.Greedy[Member], size: typing.Optional[str] = 's'):
 
@@ -117,13 +118,12 @@ class General(commands.Cog):
             return await ctx.send(embed=e.to_embed())
 
     @commands.group(name='stats', help='Command group for getting several statistics of the server',
-                    hidden=True)
+                    hidden=True, aliases=['s'])
     async def stats(self, ctx):
         pass
 
     @stats.command(name='summary', help='Get server statistics summary',
-                   usage='summary'
-                  )
+                   usage='summary', aliases=['sum'])
     @commands.guild_only()
     async def summary(self, ctx):
         guild = ctx.guild
@@ -183,9 +183,8 @@ class General(commands.Cog):
 
         return await ctx.send(embed=e.to_embed())
 
-    @stats.command(name='gender', help='Get server statistics summary',
-                   usage='gender'
-                   )
+    @stats.command(name='gender', help='Get server statistics based on gender',
+                   usage='gender', aliases=['g'])
     @commands.guild_only()
     async def gender(self, ctx):
         guild = ctx.guild
@@ -371,6 +370,7 @@ class General(commands.Cog):
     #                 await ctx.message.author.send('', embed=halp)
     #     except:
     #         pass
+
     @commands.command(name='help', description='The help command!', help='Help command', hidden=True,
                       aliases=['commands', 'command'], usage='section_name\n Ex: !help Admin')
     async def help_command(self, ctx, cog='all'):
