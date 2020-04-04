@@ -639,7 +639,7 @@ class Admin(commands.Cog):
                     AND extra #>> '{{args,0}}' = $1;
                 """
         total = await self.bot.pool.fetchrow(query, str(GUILD_ID))
-        log.info(total)
+
         if total:
             return log.info('There is already schedule role upgrade')
 
@@ -673,7 +673,9 @@ class Admin(commands.Cog):
         if reminder is None:
             return log.exception('Role upgrade timer has not been handled.')
 
-        if not tier1to2 and not tier2to3:
+        log.info(f"{TIER1} to {TIER2}: {tier1to2} | {TIER2} to {TIER3}: {tier2to3}")
+        if tier1to2 or tier2to3:
+            log.info(f'Role upgrade has been scheduled to {role_upgrade_gap_dt.dt}')
             return await reminder.create_timer(role_upgrade_gap_dt.dt, 'role_upgrade', GUILD_ID,
                                                json.dumps(tier1to2), json.dumps(tier2to3),
                                                connection=self.bot.pool,

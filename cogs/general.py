@@ -2,15 +2,17 @@ import logging
 import random
 import string
 import typing
+import datetime
 
 
-from discord import Embed, Color, Role, Member
+from discord import Embed, Color, Role, Member, utils
 from discord.ext import commands
 from utils.formats import CustomEmbed
 
 
 from utils.formats import colors
-from config import ACTIVITY_ROLE_NAME, GENDER_ROLE_NAMES, STRANGER_ROLE_NAME
+from config import ACTIVITY_ROLE_NAME, GENDER_ROLE_NAMES, STRANGER_ROLE_NAME, \
+    STATS_ROLES, VALID_STATS_ROLES, LEADER_ROLE_NAME, BOT_ROLE_NAME
 
 log = logging.getLogger('root')
 
@@ -73,14 +75,9 @@ class General(commands.Cog):
 
         log.exception(error, extra=extra_context)
 
-    @commands.group(name='stats', help='Command group for getting several statistics of the server',
-                    hidden=True)
-    async def stats(self, ctx):
-        pass
-
     @commands.command(name='user', help='Get user avatar with information',
                       usage='[@user or username]\n'
-                      'You can give member name or mention.')
+                            'You can give member name or mention.')
     @commands.guild_only()
     async def user(self, ctx, members: commands.Greedy[Member], size: typing.Optional[str] = 's'):
 
@@ -96,11 +93,14 @@ class General(commands.Cog):
         if not members:
             raise commands.BadArgument('No member is not given.')
 
+        now = datetime.datetime.now()
         for member in members:
-            avatar_url = str(member.avatar_url_as(size=content_size))
-            member_text = f"Joined: {member.joined_at.strftime('%Y-%m-%d %H:%M:%S')}\n" \
-                          f"Roles: {', '.join([role.name for role in member.roles if role.name != '@everyone'])}\n" \
-                          f"Status: {str(member.status)}"
+            avatar_url = str(member.avatar_url_as(size=content_size, static_format='png'))
+            member_text = f"**Created**: {member.created_at.strftime('%Y-%m-%d %H:%M:%S')} **({(now - member.created_at).days} days)**\n" \
+                          f"**Joined**: {member.joined_at.strftime('%Y-%m-%d %H:%M:%S')} **({(now - member.joined_at).days} days)**\n" \
+                          f"**Top role**: {member.top_role}\n"\
+                          f"**Roles**: {', '.join([role.name for role in member.roles if role.name != '@everyone'])}\n" \
+                          f"**Status**: {('Do not disturb' if (str(member.status) == 'dnd') else str(member.status))}"
             embed_dict = {"title": "Avatar",
                           "author": {
                               "name": f"{member.display_name}",
@@ -114,74 +114,218 @@ class General(commands.Cog):
             e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name,
                                       avatar_url=self.bot.user.avatar_url,
                                       is_thumbnail=False)
-            await ctx.send(embed=e.to_embed())
+            return await ctx.send(embed=e.to_embed())
 
-    @stats.command(name='gender', help='Get server statistics based on gender',
-                   usage='gender [optional @role]\n'
-                         'If a role is given, an additional gender statistics '
-                         'based on this role will be given as well.')
+    @commands.group(name='stats', help='Command group for getting several statistics of the server',
+                    hidden=True)
+    async def stats(self, ctx):
+        pass
+
+    @stats.command(name='summary', help='Get server statistics summary',
+                   usage='summary'
+                  )
     @commands.guild_only()
-    async def gender(self, ctx, filter_role: typing.Optional[Role]):
-        filter_role = filter_role or await commands.RoleConverter().convert(ctx, ACTIVITY_ROLE_NAME)
-
-        if filter_role is None:
-            raise commands.BadArgument('Role name is not valid.')
-        else:
-            if filter_role.name in GENDER_ROLE_NAMES:
-                raise commands.BadArgument('You have given a gender role, please give another role.')
-
+    async def summary(self, ctx):
         guild = ctx.guild
-        total_member = total_filtered_member = 0
-        gender_dict = {gender: 0 for gender in GENDER_ROLE_NAMES}
-        gender_dict_by_role = {gender: 0 for gender in GENDER_ROLE_NAMES}
-        gender_undefined_members = ''
-        for member in guild.members:
-            has_gender_role = has_filter_role = False
-            if member.bot or any(role.name == STRANGER_ROLE_NAME for role in member.roles):
-                continue
+        role_members = {}
+        embed_dict = {'title': '__Channel statistics__',
+                      'fields': []}
 
-            for index, member_role in enumerate(member.roles):
-                if member_role.name == filter_role.name:
-                    has_filter_role = True
+        total_member_count = guild.member_count
+        valid_member_count = 0
+        activity_role = utils.get(guild.roles, name=ACTIVITY_ROLE_NAME)
+        member_role_text = ""
+        activity_role_text = ""
 
-                if member_role.name in GENDER_ROLE_NAMES:
-                    has_gender_role = True
-                    gender_dict[member_role.name] += 1
-                    total_member += 1
-                    if has_filter_role:
-                        gender_dict_by_role[member_role.name] += 1
-                        total_filtered_member += 1
-                    else:
-                        if filter_role in member.roles[index:]:
-                            gender_dict_by_role[member_role.name] += 1
-                            total_filtered_member += 1
+        for role_name in STATS_ROLES:
+            role = utils.get(guild.roles, name=role_name)
+            if role is not None:
+                role_members[role_name] = role
+                role_member_count = len(role.members)
+                member_role_text += f"\u21a6 **{role_name}:** {str(len(role.members))} /  {str(total_member_count)}" \
+                                    f"(%{str(round((role_member_count / total_member_count)*100, 2))})\n"
 
-                    # every member has one gender role
-                    break
+                if role.name in VALID_STATS_ROLES:
+                    valid_member_count += role_member_count
 
-            if not has_gender_role:
-                gender_undefined_members += f'<@{member.id}>\n'
+                    if activity_role is not None:
+                        active_m_with_role = set(role.members).intersection(activity_role.members)
+                        activity_role_text += f"\u21a6 **{role_name}:** {str(len(active_m_with_role))} (out of " \
+                                              f"{str(role_member_count)}: %{str(round((len(active_m_with_role) / role_member_count) * 100, 2))}) " \
+                                              f"/ {str(len(activity_role.members))}" \
+                                              f" (%{str(round((len(active_m_with_role) / len(activity_role.members)) * 100, 2))})\n"
 
-        embed_dict = {'title': 'Gender statistics', 'color': Color.blue().value,
-                      'fields': []
-                      }
-        if total_member > 0:
-            gender_str = ''.join([f'**{gender}**: {"%.3f"%(count / total_member)}\u0009'
-                                  for gender, count in gender_dict.items()])
-            embed_dict['fields'].append({'name': "All member distribution", 'value': gender_str, 'inline': False})
+        member_role_text = f"**Total members:** {str(total_member_count)}\n " \
+                           f"**Total valid members(exc. {BOT_ROLE_NAME} and {STRANGER_ROLE_NAME}):** {str(valid_member_count)}\n" + member_role_text
+        embed_dict['fields'].append({'name': "__Role distribution__", 'value': member_role_text, 'inline': False})
+        if activity_role_text:
+            active_member_count = len(activity_role.members)
+            activity_role_text = f"**Active ({ACTIVITY_ROLE_NAME}) members:** " \
+                                 f"{str(active_member_count)} / {str(valid_member_count)}\n" + activity_role_text
+            embed_dict['fields'].append({'name': "__Active role distribution__", 'value': activity_role_text, 'inline': False})
 
-        if total_filtered_member > 0:
-            gender_filtered_str = ''.join([f'**{gender}**: {"%.3f"%(count / total_filtered_member)}\u0009'
-                                           for gender, count in gender_dict_by_role.items()])
-            embed_dict['fields'].append({'name': f"{filter_role.name} member distribution", 'value': gender_filtered_str, 'inline': False})
+        leader_role = utils.get(guild.roles, name=LEADER_ROLE_NAME)
+        if leader_role is not None:
+            leader_members = leader_role.members
+            leader_role_text = ""
+            for member in leader_members:
+                leader_role_text += f"* **{member.mention}** ({str(member.top_role)})\n"
 
-        if gender_undefined_members:
-            embed_dict['fields'].append({'name': "Members with unassigned gender", 'value': gender_undefined_members, 'inline': False})
+            if leader_role_text:
+                leader_role_text += str("""**```css\nCongratulations to all leader members!!! You are the most precious building blocks of this channel.```**""")
+                embed_dict['fields'].append({'name': f"__Leader ({LEADER_ROLE_NAME}) members (Random order)__",
+                                             'value': leader_role_text, 'inline': False})
 
-        if len(embed_dict['fields']):
-            await ctx.send(embed=Embed.from_dict(embed_dict))
-        else:
-            await ctx.send('No statistics has been generated.')
+        e = CustomEmbed.from_dict(embed_dict,
+                                  author_name=ctx.author.name,
+                                  avatar_url=self.bot.user.avatar_url,
+                                  is_thumbnail=False)
+
+        return await ctx.send(embed=e.to_embed())
+
+    @stats.command(name='gender', help='Get server statistics summary',
+                   usage='gender'
+                   )
+    @commands.guild_only()
+    async def gender(self, ctx):
+        guild = ctx.guild
+        gender_roles, valid_roles = {}, {}
+        embed_dict = {'title': '__Gender statistics__',
+                      'fields': []}
+
+        valid_member_count = 0
+        activity_role = utils.get(guild.roles, name=ACTIVITY_ROLE_NAME)
+        member_gender_text, member_role_gender_text, member_activity_gender_text, member_activity_role_gender_text = "", "", "", ""
+
+        valid_roles = {role_name: utils.get(guild.roles, name=role_name) for role_name in VALID_STATS_ROLES
+                       if utils.get(guild.roles, name=role_name) is not None}
+
+        for role_name in GENDER_ROLE_NAMES:
+            role = utils.get(guild.roles, name=role_name)
+            if role is not None:
+                gender_roles[role_name] = role
+                role_member_count = len(role.members)
+                valid_member_count += role_member_count
+
+        for role_name, role in gender_roles.items():
+            role_member_count = len(role.members)
+            member_gender_text += f"\u21a6 ** {role_name}:** {str(role_member_count)} /  {str(valid_member_count)}" \
+                                  f"  (%{str(round((role_member_count / valid_member_count) * 100, 2))})\n"
+            if activity_role is not None:
+                active_m_with_gender = set(role.members).intersection(activity_role.members)
+                active_m_with_gender_count = len(active_m_with_gender)
+                if active_m_with_gender_count > 0:
+                    member_activity_gender_text += f" **{role_name[0]}**:{str(active_m_with_gender_count)} /  {str(len(activity_role.members))}" \
+                                                   f" (%{str(round((active_m_with_gender_count / len(activity_role.members)) * 100, 2))})"
+
+        for valid_role_name, valid_role in valid_roles.items():
+            valid_role_member_count = len(valid_role.members)
+            temp_text, temp_text2 = f"\u21a6 **{valid_role_name} =  **", f"\u21a6 **{valid_role_name} = **"
+            for role_name, role in gender_roles.items():
+                valid_role_with_gender = set(role.members).intersection(valid_role.members)
+                valid_role_gender_count = len(valid_role_with_gender)
+                if valid_role_gender_count > 0:
+                    temp_text += f" **{role_name[0]}**:{str(valid_role_gender_count)} (out of {str(valid_role_member_count)}:" \
+                                 f" %{str(round((valid_role_gender_count / valid_role_member_count) * 100, 2))}) /" \
+                                 f" {str(valid_member_count)} (%{str(round((valid_role_gender_count / valid_member_count) * 100, 2))})"
+                if activity_role is not None:
+                    active_m_with_role = valid_role_with_gender.intersection(activity_role.members)
+                    active_role_gender_count = len(active_m_with_role)
+                    if active_role_gender_count > 0:
+                        temp_text2 += f" **{role_name[0]}**:{str(active_role_gender_count)} /  {str(len(activity_role.members))}" \
+                                      f" (%{str(round((active_role_gender_count / len(activity_role.members)) * 100, 2))})"
+
+            temp_text += "\n"
+            temp_text2 += "\n"
+            member_role_gender_text += temp_text
+            member_activity_role_gender_text += temp_text2
+
+        member_gender_text = f"**Total valid members(exc. {BOT_ROLE_NAME} and {STRANGER_ROLE_NAME}):** {str(valid_member_count)}\n" + member_gender_text
+        member_role_gender_text = f"**Total valid members(exc. {BOT_ROLE_NAME} and {STRANGER_ROLE_NAME}):** {str(valid_member_count)}\n" + member_role_gender_text
+
+        if activity_role is not None:
+            member_activity_role_gender_text = f"**Total active ({ACTIVITY_ROLE_NAME}) members:** " \
+                                               f"{str(len(activity_role.members))}\n" + \
+                                               f"**Active ({ACTIVITY_ROLE_NAME}) members by gender:** " + \
+                                               member_activity_gender_text + "\n" + member_activity_role_gender_text
+
+        embed_dict['fields'].append({'name': "__Overall Gender distribution__", 'value': member_gender_text, 'inline': False})
+        embed_dict['fields'].append({'name': "__Gender distribution by role__", 'value': member_role_gender_text, 'inline': False})
+        embed_dict['fields'].append({'name': "__Gender distribution by activity__", 'value': member_activity_role_gender_text, 'inline': False})
+
+        e = CustomEmbed.from_dict(embed_dict,
+                                  author_name=ctx.author.name,
+                                  avatar_url=self.bot.user.avatar_url,
+                                  is_thumbnail=False)
+
+        return await ctx.send(embed=e.to_embed())
+
+    # @stats.command(name='gender', help='Get server statistics based on gender',
+    #                usage='gender [optional @role]\n'
+    #                      'If a role is given, an additional gender statistics '
+    #                      'based on this role will be given as well.')
+    # @commands.guild_only()
+    # async def gender(self, ctx, filter_role: typing.Optional[Role]):
+    #     filter_role = filter_role or await commands.RoleConverter().convert(ctx, ACTIVITY_ROLE_NAME)
+    #
+    #     if filter_role is None:
+    #         raise commands.BadArgument('Role name is not valid.')
+    #     else:
+    #         if filter_role.name in GENDER_ROLE_NAMES:
+    #             raise commands.BadArgument('You have given a gender role, please give another role.')
+    #
+    #     guild = ctx.guild
+    #     total_member = total_filtered_member = 0
+    #     gender_dict = {gender: 0 for gender in GENDER_ROLE_NAMES}
+    #     gender_dict_by_role = {gender: 0 for gender in GENDER_ROLE_NAMES}
+    #     gender_undefined_members = ''
+    #     for member in guild.members:
+    #         has_gender_role = has_filter_role = False
+    #         if member.bot or any(role.name == STRANGER_ROLE_NAME for role in member.roles):
+    #             continue
+    #
+    #         for index, member_role in enumerate(member.roles):
+    #             if member_role.name == filter_role.name:
+    #                 has_filter_role = True
+    #
+    #             if member_role.name in GENDER_ROLE_NAMES:
+    #                 has_gender_role = True
+    #                 gender_dict[member_role.name] += 1
+    #                 total_member += 1
+    #                 if has_filter_role:
+    #                     gender_dict_by_role[member_role.name] += 1
+    #                     total_filtered_member += 1
+    #                 else:
+    #                     if filter_role in member.roles[index:]:
+    #                         gender_dict_by_role[member_role.name] += 1
+    #                         total_filtered_member += 1
+    #
+    #                 # every member has one gender role
+    #                 break
+    #
+    #         if not has_gender_role:
+    #             gender_undefined_members += f'<@{member.id}>\n'
+    #
+    #     embed_dict = {'title': 'Gender statistics', 'color': Color.blue().value,
+    #                   'fields': []
+    #                   }
+    #     if total_member > 0:
+    #         gender_str = ''.join([f'**{gender}**: {"%.3f"%(count / total_member)}\u0009'
+    #                               for gender, count in gender_dict.items()])
+    #         embed_dict['fields'].append({'name': "All member distribution", 'value': gender_str, 'inline': False})
+    #
+    #     if total_filtered_member > 0:
+    #         gender_filtered_str = ''.join([f'**{gender}**: {"%.3f"%(count / total_filtered_member)}\u0009'
+    #                                        for gender, count in gender_dict_by_role.items()])
+    #         embed_dict['fields'].append({'name': f"{filter_role.name} member distribution", 'value': gender_filtered_str, 'inline': False})
+    #
+    #     if gender_undefined_members:
+    #         embed_dict['fields'].append({'name': "Members with unassigned gender", 'value': gender_undefined_members, 'inline': False})
+    #
+    #     if len(embed_dict['fields']):
+    #         await ctx.send(embed=Embed.from_dict(embed_dict))
+    #     else:
+    #         await ctx.send('No statistics has been generated.')
 
 
     # async def help(self, ctx, *cog):

@@ -48,7 +48,10 @@ OWNER_ID = '647577161200566289'
 # ***** roles ***********
 # role given for newcomers who not approved and waiting in a reception
 STRANGER_ROLE_NAME = 'Yabancılar'
+# role given for members with top statistics
+LEADER_ROLE_NAME = 'Lider'
 # valid roles (higher is better)
+BOT_ROLE_NAME = 'Bot'
 TIER1 = 'Çaylaklar'
 TIER2 = 'Tecrübeliler'
 TIER3 = 'Müdavimler'
@@ -60,6 +63,10 @@ ADMIN_ROLE_NAMES = (TIER5, TIER4)
 GENDER_ROLE_NAMES = ('Hanimefendi', 'Beyefendi', 'LGBT+')
 # roles that activity rule will effect
 ACTIVITY_INCLUDED_ROLES = (TIER2, TIER1)
+# roles use for getting stats
+STATS_ROLES = (TIER5, TIER4, TIER3, TIER2, TIER1, BOT_ROLE_NAME, STRANGER_ROLE_NAME)
+VALID_STATS_ROLES = (TIER5, TIER4, TIER3, TIER2, TIER1)
+
 
 # ***** constants ********
 # minimum number of needed days removing inactive members after last prune
