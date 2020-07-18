@@ -117,6 +117,38 @@ class General(commands.Cog):
                                       is_thumbnail=False)
             return await ctx.send(embed=e.to_embed())
 
+    @commands.command(name='role', help='Get the list of users with that role',
+                      usage='[@role_mention or role name [optional True for mention False for text format]]\n'
+                            'You can give role name or mention',
+                      aliases=['r'])
+    @commands.guild_only()
+    async def role(self, ctx, roles: commands.Greedy[Role], is_mention: typing.Optional[bool] = True):
+        if not roles:
+            raise commands.BadArgument('No role is not given.')
+
+        members = ''
+        guild = ctx.guild
+        for member in guild.members:
+            member_roles = member.roles
+            if member_roles:
+                check_all = all([True if role in roles else False for role in member_roles])
+                if check_all:
+                    if is_mention:
+                        members += (member.mention + '\n')
+                    else:
+                        members += (member.name + '\n')
+
+        role_text = ', '.join([role.name for role in roles])
+        embed_dict = {"title": f"Members for roles: {role_text}",
+                      'fields': [
+                          {'name': "Members", 'value': members, 'inline': False},
+                      ],
+                      }
+        e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name,
+                                  avatar_url=self.bot.user.avatar_url,
+                                  is_thumbnail=False)
+        return await ctx.send(embed=e.to_embed())
+
     @commands.group(name='stats', help='Command group for getting several statistics of the server',
                     hidden=True, aliases=['s'])
     async def stats(self, ctx):
