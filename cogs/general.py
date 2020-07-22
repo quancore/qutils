@@ -12,7 +12,7 @@ from utils.formats import CustomEmbed
 
 from utils.formats import colors
 from config import ACTIVITY_ROLE_NAME, GENDER_ROLE_NAMES, STRANGER_ROLE_NAME, \
-    STATS_ROLES, VALID_STATS_ROLES, LEADER_ROLE_NAME, BOT_ROLE_NAME
+    STATS_ROLES, VALID_STATS_ROLES, LEADER_ROLE_NAME, BOT_ROLE_NAME, ROLE_HIERARCHY
 
 log = logging.getLogger('root')
 
@@ -97,11 +97,26 @@ class General(commands.Cog):
         now = datetime.datetime.now()
         for member in members:
             avatar_url = str(member.avatar_url_as(size=content_size, static_format='png'))
-            member_text = f"**Created**: {member.created_at.strftime('%Y-%m-%d %H:%M:%S')} **({(now - member.created_at).days} days)**\n" \
-                          f"**Joined**: {member.joined_at.strftime('%Y-%m-%d %H:%M:%S')} **({(now - member.joined_at).days} days)**\n" \
-                          f"**Top role**: {member.top_role}\n"\
+            top_role = member.top_role
+            days_created = (now - member.created_at).days
+            days_joined = (now - member.joined_at).days
+            role_upgrade_text = None
+            if top_role.name in ROLE_HIERARCHY:
+                next_role, days_total = ROLE_HIERARCHY[top_role.name]
+                days_left = days_total - days_joined
+                role_upgrade_text = f'{top_role.name}  ➡️ {next_role}'
+                if days_left >= 0:
+                    role_upgrade_text += f' **({days_left} days left)**'
+                else:
+                    role_upgrade_text += f'**(have to update immediately!!!)**'
+
+            member_text = f"**Created**: {member.created_at.strftime('%Y-%m-%d %H:%M:%S')} **({days_created} days)**\n" \
+                          f"**Joined**: {member.joined_at.strftime('%Y-%m-%d %H:%M:%S')} **({days_joined} days)**\n" \
+                          f"**Top role**: {top_role.name}\n"\
                           f"**Roles**: {', '.join([role.name for role in member.roles if role.name != '@everyone'])}\n" \
+                          f"**Upgrade**: {'-' if role_upgrade_text is None else role_upgrade_text}\n" \
                           f"**Status**: {('Do not disturb' if (str(member.status) == 'dnd') else str(member.status))}"
+
             embed_dict = {"title": "Avatar",
                           "author": {
                               "name": f"{member.display_name}",
@@ -112,42 +127,11 @@ class General(commands.Cog):
                               {'name': "Information", 'value': member_text, 'inline': False},
                           ],
                           }
+
             e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name,
                                       avatar_url=self.bot.user.avatar_url,
                                       is_thumbnail=False)
             return await ctx.send(embed=e.to_embed())
-
-    @commands.command(name='role', help='Get the list of users with that role',
-                      usage='[@role_mention or role name [optional True for mention False for text format]]\n'
-                            'You can give role name or mention',
-                      aliases=['r'])
-    @commands.guild_only()
-    async def role(self, ctx, roles: commands.Greedy[Role], is_mention: typing.Optional[bool] = True):
-        if not roles:
-            raise commands.BadArgument('No role is not given.')
-
-        members = ''
-        guild = ctx.guild
-        for member in guild.members:
-            member_roles = member.roles
-            if member_roles:
-                check_all = all([True if role in roles else False for role in member_roles])
-                if check_all:
-                    if is_mention:
-                        members += (member.mention + '\n')
-                    else:
-                        members += (member.name + '\n')
-
-        role_text = ', '.join([role.name for role in roles])
-        embed_dict = {"title": f"Members for roles: {role_text}",
-                      'fields': [
-                          {'name': "Members", 'value': members, 'inline': False},
-                      ],
-                      }
-        e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name,
-                                  avatar_url=self.bot.user.avatar_url,
-                                  is_thumbnail=False)
-        return await ctx.send(embed=e.to_embed())
 
     @commands.group(name='stats', help='Command group for getting several statistics of the server',
                     hidden=True, aliases=['s'])

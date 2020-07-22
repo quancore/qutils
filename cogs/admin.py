@@ -540,15 +540,51 @@ class Admin(commands.Cog):
 
         await self.bot.pool.executemany(query, query_params)
 
-
 #     ********* autonomous functions ************
-    @commands.group(name='role', help='Command group for discarding members',
+    @commands.group(name='role', help='Command group for role based operations',
                     usage='This is not a command but a command group.', hidden=True)
     async def role(self, ctx):
         pass
 
-    @role.command(name='list', help='List last 10 role update events',
-                  usage="Ex: !role list")
+    @role.command(name='list', help='Get the list of users with that role',
+                  usage='[@role_mention or role name [optional True for mention False for comma separated format]]\n'
+                        'You can give role name or mention',
+                  aliases=['r'])
+    @commands.guild_only()
+    @commands.has_permissions(manage_roles=True, kick_members=True, ban_members=True)
+    async def list(self, ctx, roles: commands.Greedy[Role], is_cs: typing.Optional[bool] = False):
+        if not roles:
+            raise commands.BadArgument('No role is not given.')
+
+        members = []
+        guild = ctx.guild
+        for member in guild.members:
+            member_roles = member.roles
+            if member_roles:
+                check_all = all([True if role in member_roles else False for role in roles])
+                if check_all:
+                    members.append(member)
+
+        member_text = None
+        if members:
+            if not is_cs:
+                member_text = '\n'.join([member.mention for member in members])
+            else:
+                member_text = ','.join([member.name for member in members])
+
+        role_text = ', '.join([role.name for role in roles])
+        embed_dict = {"title": f"Members for roles: {role_text}",
+                      'fields': [
+                          {'name': "Members", 'value': (member_text if member_text else 'No member found'), 'inline': False},
+                      ],
+                      }
+        e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name,
+                                  avatar_url=self.bot.user.avatar_url,
+                                  is_thumbnail=False)
+        return await ctx.send(embed=e.to_embed())
+
+    @role.command(name='list_update', help='List last 10 role update events',
+                  usage="Ex: !role list_update")
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True, kick_members=True, ban_members=True)
     async def list_r(self, ctx):

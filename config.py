@@ -66,6 +66,8 @@ ACTIVITY_INCLUDED_ROLES = (TIER2, TIER1)
 # roles use for getting stats
 STATS_ROLES = (TIER5, TIER4, TIER3, TIER2, TIER1, BOT_ROLE_NAME, STRANGER_ROLE_NAME)
 VALID_STATS_ROLES = (TIER5, TIER4, TIER3, TIER2, TIER1)
+# roles for using user command (getting number of days to upgrade next role)
+ROLE_HIERARCHY = {TIER1: (TIER2, 60), TIER2: (TIER3, 240)}
 
 
 # ***** constants ********
