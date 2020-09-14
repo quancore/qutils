@@ -875,25 +875,33 @@ class Admin(commands.Cog):
                         SET (num_discarded, {col_names}) = ROW(du.num_discarded+1, {col_val_placeholder});
                     """
 
+        global_exception_member_records = await self.fetch_all_exceptions(self.bot.pool, guild.id)
+        global_exception_members = [await helpers.get_member_by_id(guild, record['member_id'])
+                                    for record in global_exception_member_records]
+        global_exception_members = [member for member in global_exception_members if member is not None]
+
         for member_id in member_id_list:
             member = await helpers.get_member_by_id(guild, member_id)
             if member is not None and activity_role not in member.roles:
-                top_role_id = member.top_role.id
+                if member not in global_exception_members:
+                    top_role_id = member.top_role.id
 
-                if is_ban:
-                    await member.ban(reason=reason)
+                    if is_ban:
+                        await member.ban(reason=reason)
+                    else:
+                        # send a rejoin message to a member if kicked
+                        if invite_link:
+                            rejoin_msg = removed_member_pm_template.format(guild.name, invite_link,
+                                                                           rejoin_invite_timeout_days)
+                            await member.send(rejoin_msg)
+
+                        await member.kick(reason=reason)
+
+                    query_params.append(
+                        (member.id, 1, member.display_name, member.joined_at, datetime.datetime.utcnow(),
+                         is_ban, top_role_id, reason))
                 else:
-                    # send a rejoin message to a member if kicked
-                    if invite_link:
-                        rejoin_msg = removed_member_pm_template.format(guild.name, invite_link,
-                                                                       rejoin_invite_timeout_days)
-                        await member.send(rejoin_msg)
-
-                    await member.kick(reason=reason)
-
-                query_params.append(
-                    (member.id, 1, member.display_name, member.joined_at, datetime.datetime.utcnow(),
-                     is_ban, top_role_id, reason))
+                    log.info(f'Member is excluded from discouragement on event handler: {member.mention}')
 
         await self.bot.pool.executemany(query, query_params)
         log.info(f'Scheduled removal event created at: {timer.created_at.strftime("%Y-%m-%d %H:%M:%S")} '
