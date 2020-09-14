@@ -420,6 +420,8 @@ class Confession(commands.Cog):
         self.currently_confessing.add(author.id)
 
         guilds = [await helpers.get_guild_by_id(self.bot, guild_id) for guild_id in self.confession_servers_map.keys()]
+        # filter guilds to keep only guild the user in
+        guilds = [guild for guild in guilds if await helpers.get_member_by_id(guild, author.id) is not None]
         if len(guilds) == 0:
             return await ctx.send('There is no server currently set for confession.\n'
                                   '__To set up a confession server__\n'

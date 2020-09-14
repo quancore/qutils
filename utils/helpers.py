@@ -66,7 +66,7 @@ async def get_member_by_id(guild: Guild, member_id: int) -> Optional[Member]:
         try:
             member = guild.get_member(member_id) or await guild.fetch_member(member_id)
         except (HTTPException, Forbidden) as err:
-            print(err)
+            pass
 
     return member
 
