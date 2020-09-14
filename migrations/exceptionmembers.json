@@ -1,0 +1,81 @@
+{
+    "table": {
+        "name": "exceptionmembers",
+        "__meta__": "cogs.admin.ExceptionMembers",
+        "columns": [
+            {
+                "column_type": {
+                    "big": true,
+                    "small": false,
+                    "auto_increment": false,
+                    "__meta__": "utils.db.Integer"
+                },
+                "index": false,
+                "primary_key": true,
+                "nullable": true,
+                "default": null,
+                "unique": false,
+                "name": "member_id",
+                "index_name": null
+            },
+            {
+                "column_type": {
+                    "big": true,
+                    "small": false,
+                    "auto_increment": false,
+                    "__meta__": "utils.db.Integer"
+                },
+                "index": false,
+                "primary_key": true,
+                "nullable": true,
+                "default": null,
+                "unique": false,
+                "name": "guild_id",
+                "index_name": null
+            },
+            {
+                "column_type": {
+                    "big": true,
+                    "small": false,
+                    "auto_increment": false,
+                    "__meta__": "utils.db.Integer"
+                },
+                "index": false,
+                "primary_key": false,
+                "nullable": false,
+                "default": null,
+                "unique": false,
+                "name": "added_by",
+                "index_name": null
+            },
+            {
+                "column_type": {
+                    "timezone": false,
+                    "__meta__": "utils.db.Datetime"
+                },
+                "index": false,
+                "primary_key": false,
+                "nullable": false,
+                "default": null,
+                "unique": false,
+                "name": "until",
+                "index_name": null
+            },
+            {
+                "column_type": {
+                    "length": null,
+                    "fixed": false,
+                    "__meta__": "utils.db.String"
+                },
+                "index": false,
+                "primary_key": false,
+                "nullable": true,
+                "default": "",
+                "unique": false,
+                "name": "reason",
+                "index_name": null
+            }
+        ]
+    },
+    "migrations": []
+}

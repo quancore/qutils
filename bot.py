@@ -9,7 +9,7 @@ from collections import Counter, deque
 from discord.ext import commands
 import discord
 
-from config import CLIENT_ID, BOT_TOKEN
+from config import CLIENT_ID, BOT_TOKEN, OWNER_ID
 from utils import context
 from utils.config import Config
 
@@ -22,38 +22,47 @@ log = logging.getLogger('root')
 initial_extensions = (
     'cogs.admin',
     'cogs.general',
-    'cogs.remainder'
+    'cogs.remainder',
+    'cogs.confession',
+    'cogs.fun',
+    'cogs.automation'
 )
 
 
 def _prefix_callable(bot, msg):
-    user_id = bot.user.id
-    base = [f'<@!{user_id}> ', f'<@{user_id}> ']
     if msg.guild is None:
-        base.append('!')
-        base.append('?')
+        return commands.when_mentioned_or(*bot.base_prefixes)(bot, msg)
     else:
-        base.extend(bot.prefixes.get(msg.guild.id, ['?', '!']))
-    return base
+        return commands.when_mentioned_or(*bot.prefixes.get(msg.guild.id, bot.base_prefixes))(bot, msg)
+
+
+def exception_handler(loop, ctx):
+    err = f'{ctx.get("message", "-")} | {ctx.get("exception", "-")}\n' \
+          f'{ctx.get("future", "-")}'
+    log.exception(err)
 
 
 class Qutils(commands.AutoShardedBot):
     def __init__(self):
-        super().__init__(command_prefix=_prefix_callable, description=description,
-                         pm_help=None, help_attrs=dict(hidden=True), fetch_offline_members=False,
-                         activity=discord.Game(name=":help for mods")
+        super().__init__(command_prefix=_prefix_callable, description=description, case_insensitive=True,
+                         pm_help=None, help_attrs=dict(hidden=True), fetch_offline_members=True,
+                         activity=discord.Game(name=":help for mods"), owner_id=int(OWNER_ID)
                          )
 
         self.client_id = CLIENT_ID
         # self.carbon_key = config.carbon_key
         # self.bots_key = config.bots_key
         # self.challonge_api_key = config.challonge_api_key
+
         self.session = aiohttp.ClientSession(loop=self.loop)
 
         self._prev_events = deque(maxlen=10)
 
-        # guild_id: list
+        # guild_id: list_role
         self.prefixes = Config('prefixes.json')
+
+        # base default prefixes
+        self.base_prefixes = ['?', '!']
 
         # guild_id and user_id mapped to True
         # these are users and guilds globally blacklisted
@@ -75,6 +84,9 @@ class Qutils(commands.AutoShardedBot):
             except Exception as e:
                 log.exception(f'Failed to load extension {extension}.', exc_info=True)
 
+        # Set event loop exception handler
+        self.loop.set_exception_handler(exception_handler)
+
     async def on_socket_response(self, msg):
         self._prev_events.append(msg)
 
@@ -93,7 +105,7 @@ class Qutils(commands.AutoShardedBot):
             await ctx.send(error)
 
     def get_guild_prefixes(self, guild, *, local_inject=_prefix_callable):
-        proxy_msg = discord.Object(id=None)
+        proxy_msg = discord.Object(id=0)
         proxy_msg.guild = guild
         return local_inject(self, proxy_msg)
 
@@ -124,7 +136,7 @@ class Qutils(commands.AutoShardedBot):
         log.info(f'Bot ready, User: {self.user} (ID: {self.user.id})')
 
     async def on_resumed(self):
-        print('resumed...')
+        print('Season has been resumed...')
 
     @property
     def stats_webhook(self):
@@ -185,6 +197,12 @@ class Qutils(commands.AutoShardedBot):
     async def on_message(self, message):
         if message.author.bot:
             return
+
+        # Send back the prefixes when bot mentioned
+        if not message.mention_everyone and self.user.mentioned_in(message):
+            guild = message.guild
+            prefixes = self.get_guild_prefixes(guild)
+            await message.channel.send(f'My prefixes are: **{prefixes}**')
 
         await self.process_commands(message)
 

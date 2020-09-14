@@ -1,0 +1,39 @@
+{
+  "settings": {
+  "channelName": "freezone",
+  "channelType": "text",
+  "permissionOverrides": [
+    {
+      "roleName": "@everyone",
+      "permissions": {
+        "read_messages": false,
+        "send_messages": false,
+        "send_tts_messages": false,
+        "manage_messages": false,
+        "embed_links": false,
+        "attach_files": false,
+        "read_message_history": false,
+        "mention_everyone": false,
+        "use_external_emojis": false,
+        "add_reactions": false
+    }
+    },
+    {
+      "roleName": "Yönetim",
+      "permissions": {
+        "read_messages": false,
+        "send_messages": false,
+        "send_tts_messages": false,
+        "manage_messages": false,
+        "embed_links": false,
+        "attach_files": false,
+        "read_message_history": false,
+        "mention_everyone": false,
+        "use_external_emojis": false,
+        "add_reactions": false
+                      }
+    }
+  ]
+  },
+  "_comment": "JSON file for closing freezone text channel.This JSON file also example for format."
+}

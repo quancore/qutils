@@ -1,10 +1,14 @@
-from utils import db, time, formats
-from discord.ext import commands
-import discord
+import logging
 import asyncio
 import asyncpg
 import datetime
 import textwrap
+import typing
+
+from discord.ext import commands
+import discord
+
+from utils import db, time, formats, helpers
 
 
 class Reminders(db.Table):
@@ -14,6 +18,9 @@ class Reminders(db.Table):
     created = db.Column(db.Datetime, default="now() at time zone 'utc'")
     event = db.Column(db.String)
     extra = db.Column(db.JSON, default="'{}'::jsonb")
+
+
+log = logging.getLogger('root')
 
 
 class Timer:
@@ -71,6 +78,7 @@ class Reminder(commands.Cog):
 
     async def cog_command_error(self, ctx, error):
         if isinstance(error, commands.BadArgument):
+            log.exception(error)
             await ctx.send(error)
 
     async def get_active_timer(self, *, connection=None, days=7):
@@ -103,6 +111,14 @@ class Reminder(commands.Cog):
         event_name = f'{timer.event}_timer_complete'
         self.bot.dispatch(event_name, timer)
 
+    def cancel_current_timer(self, timer_ids: typing.Optional[list] = None):
+        """ Cancel current timer if the ID is correct if given else cancel it directly"""
+        is_cancel_timer = True if timer_ids is None else (True if self._current_timer.id in timer_ids else False)
+        if self._current_timer and is_cancel_timer:
+            print(f'Cancelling current timer: {self._current_timer}')
+            self._task.cancel()
+            self._task = self.bot.loop.create_task(self.dispatch_timers())
+
     async def dispatch_timers(self):
         try:
             await self.bot.wait_until_ready()
@@ -111,6 +127,7 @@ class Reminder(commands.Cog):
                 # so we're gonna cap it off at 40 days
                 # see: http://bugs.python.org/issue20493
                 timer = self._current_timer = await self.wait_for_active_timers(days=40)
+                print(f'current timer: {timer}')
                 now = datetime.datetime.utcnow()
                 if timer.expires >= now:
                     to_sleep = (timer.expires - now).total_seconds()
@@ -184,7 +201,6 @@ class Reminder(commands.Cog):
         row = await connection.fetchrow(query, event, {'args': args, 'kwargs': kwargs}, when, now)
 
         timer.id = row[0]
-        print(str(row))
 
         # only set the data check if it can be waited on
         if delta <= (86400 * 40):  # 40 days
@@ -198,9 +214,23 @@ class Reminder(commands.Cog):
 
         return timer
 
-    @commands.group(aliases=['timer', 'remind'], usage='<when>', invoke_without_command=True, hidden=True)
-    async def reminder(self, ctx, *, when: time.UserFriendlyTime(commands.clean_content, default='\u2026')):
-        """Reminds you of something after a certain amount of time.
+    @commands.group(name='reminder', aliases=['timer', 'remind'], help='Command group for reminder', hidden=True)
+    async def reminder(self, ctx):
+        pass
+
+    @reminder.command(name='create',
+                      help='Create a reminder that reminds you of something after a certain amount of time',
+                      usage='<when> \n The input can be any direct date (e.g. YYYY-MM-DD) or a human readable offset.\n'
+                            'Examples:'
+                            '- "next thursday at 3pm do something funny"'
+                            '- "do the dishes tomorrow"'
+                            '- "in 3 days do the thing"'
+                            '- "2d unmute someone" \n'
+                            'Times are in UTC.',
+                      aliases=['make']
+                      )
+    async def create(self, ctx, *, when: time.UserFriendlyTime(commands.clean_content, default='\u2026')):
+        """Create a reminder that reminds you of something after a certain amount of time.
 
         The input can be any direct date (e.g. YYYY-MM-DD) or a human
         readable offset. Examples:
@@ -212,17 +242,17 @@ class Reminder(commands.Cog):
 
         Times are in UTC.
         """
-
         timer = await self.create_timer(when.dt, 'reminder', ctx.author.id,
-                                                             ctx.channel.id,
-                                                             when.arg,
-                                                             connection=ctx.db,
-                                                             created=ctx.message.created_at,
-                                                             message_id=ctx.message.id)
+                                        ctx.channel.id,
+                                        when.arg,
+                                        connection=ctx.db,
+                                        created=ctx.message.created_at,
+                                        message_id=ctx.message.id)
         delta = time.human_timedelta(when.dt, source=timer.created_at)
-        await ctx.send(f"Alright {ctx.author.mention}, in {delta}: {when.arg}")
+        await ctx.send(f"Alright {ctx.author.mention}, I will remind you in {delta}: **{when.arg}**")
 
-    @reminder.command(name='list', help='Shows the 10 latest currently running reminders.')
+    @reminder.command(name='fetch', help='Fetch the 10 latest currently running reminders of yours.',
+                      aliases=['list', 'l'])
     async def reminder_list(self, ctx):
         """Shows the 10 latest currently running reminders."""
         query = f"""SELECT id, expires, extra #>> '{{args,2}}'
@@ -251,11 +281,14 @@ class Reminder(commands.Cog):
 
         await ctx.send(embed=e)
 
-    @reminder.command(name='delete', aliases=['remove', 'cancel'], help='Deletes a reminder by its ID')
-    async def reminder_delete(self, ctx, *, id: int):
+    @reminder.command(name='delete', help='Deletes a reminder by its ID',
+                      usage='<id_of_reminder> \n '
+                            'Please run `reminder fetch` command to fetch reminders to get ID of a reminder.',
+                      aliases=['remove', 'cancel', 'r'])
+    async def reminder_delete(self, ctx, *, delete_id: int):
         """Deletes a reminder by its ID.
 
-        To get a reminder ID, use the reminder list command.
+        To get a reminder ID, use the reminder list_role command.
 
         You must own the reminder to delete it, obviously.
         """
@@ -266,43 +299,45 @@ class Reminder(commands.Cog):
                    AND extra #>> '{args,0}' = $2;
                 """
 
-        status = await ctx.db.execute(query, id, str(ctx.author.id))
+        status = await ctx.db.execute(query, delete_id, str(ctx.author.id))
         if status == 'DELETE 0':
             return await ctx.send('Could not delete any reminders with that ID.')
 
-        # if the current timer is being deleted
-        if self._current_timer and self._current_timer.id == id:
-            # cancel the task and re-run it
-            self._task.cancel()
-            self._task = self.bot.loop.create_task(self.dispatch_timers())
+        # if the current timer is being deleted, cancel it
+        self.cancel_current_timer([delete_id])
 
-        await ctx.send('Successfully deleted reminder.')
+        await ctx.send(f'Reminder with ID: {delete_id} successfully deleted.')
 
-    @reminder.command(name='clear', help='Clears all reminders you have set')
+    @reminder.command(name='clear', help='Clears all reminders you have set',
+                      aliases=['c'])
     async def reminder_clear(self, ctx):
         """Clears all reminders you have set"""
 
         # For UX purposes this has to be two queries.
 
-        query = """SELECT COUNT(*)
+        query = """SELECT *
                    FROM reminders
                    WHERE event = 'reminder'
                    AND extra #>> '{args,0}' = $1;
                 """
 
         author_id = str(ctx.author.id)
-        total = await ctx.db.fetchrow(query, author_id)
-        total = total[0]
-        if total == 0:
+        records = await ctx.db.fetch(query, author_id)
+        if len(records) == 0:
             return await ctx.send('You do not have any reminders to delete.')
 
-        confirm = await ctx.prompt(f'Are you sure you want to delete {formats.plural(total):reminder}?')
+        confirm = await ctx.prompt(f'Are you sure you want to delete {formats.Plural(len(records)):reminder}?')
         if not confirm:
-            return await ctx.send('Aborting')
+            return await ctx.send('Aborting the removal operation')
 
         query = """DELETE FROM reminders WHERE event = 'reminder' AND extra #>> '{args,0}' = $1;"""
         await ctx.db.execute(query, author_id)
-        await ctx.send(f'Successfully deleted {formats.plural(total):reminder}.')
+
+        # get deleted record ids to cancel the current timer if any of them is indeed current timer
+        deleted_timer_ids = [record['id'] for record in records]
+        self.cancel_current_timer(deleted_timer_ids)
+
+        await ctx.send(f'Successfully deleted {formats.Plural(len(records)):reminder}.')
 
     @commands.Cog.listener()
     async def on_reminder_timer_complete(self, timer):
@@ -318,13 +353,13 @@ class Reminder(commands.Cog):
         msg = f'<@{author_id}>, {timer.human_delta}: {message}'
 
         if message_id:
-            msg = f'{msg}\n\n<https://discordapp.com/channels/{guild_id}/{channel.id}/{message_id}>'
+            msg = f'{msg}\n\nURL: <https://discordapp.com/channels/{guild_id}/{channel.id}/{message_id}>'
 
         try:
             await channel.send(msg)
         except discord.HTTPException:
             return
 
+
 def setup(bot):
     bot.add_cog(Reminder(bot))
-

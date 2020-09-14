@@ -873,7 +873,7 @@ class Table(metaclass=TableMeta):
 
         The following JSON schema is used:
 
-        Note that every major key takes a list of objects as noted below.
+        Note that every major key takes a list_role of objects as noted below.
 
         Note that add_column and drop_column automatically create and drop
         indices as necessary.
@@ -949,7 +949,7 @@ class Table(metaclass=TableMeta):
             # worth supporting any sort of change to the uniqueness/primary_key as it stands.
             # So.. just drop/add the column and call it a day.
             if a.unique != b.unique or a.primary_key != b.primary_key:
-                a_dict, b_dict = a.to_dict(), b.to_dict()
+                a_dict, b_dict = a._to_dict(), b._to_dict()
                 upgrade.setdefault('add_columns', []).append(a_dict)
                 upgrade.setdefault('remove_columns', []).append(b_dict)
                 downgrade.setdefault('remove_columns', []).append(a_dict)

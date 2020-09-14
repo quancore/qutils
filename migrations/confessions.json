@@ -1,0 +1,147 @@
+{
+    "table": {
+        "name": "confessions",
+        "__meta__": "cogs.confession.Confessions",
+        "columns": [
+            {
+                "column_type": {
+                    "big": true,
+                    "small": false,
+                    "auto_increment": false,
+                    "__meta__": "utils.db.Integer"
+                },
+                "index": false,
+                "primary_key": true,
+                "nullable": true,
+                "default": null,
+                "unique": false,
+                "name": "confession_id",
+                "index_name": null
+            },
+            {
+                "column_type": {
+                    "length": null,
+                    "fixed": false,
+                    "__meta__": "utils.db.String"
+                },
+                "index": false,
+                "primary_key": false,
+                "nullable": false,
+                "default": null,
+                "unique": true,
+                "name": "confession_ban_code",
+                "index_name": null
+            },
+            {
+                "column_type": {
+                    "length": null,
+                    "fixed": false,
+                    "__meta__": "utils.db.String"
+                },
+                "index": false,
+                "primary_key": false,
+                "nullable": false,
+                "default": null,
+                "unique": false,
+                "name": "user_hash_id",
+                "index_name": null
+            },
+            {
+                "column_type": {
+                    "big": true,
+                    "small": false,
+                    "auto_increment": false,
+                    "__meta__": "utils.db.Integer"
+                },
+                "index": false,
+                "primary_key": false,
+                "nullable": false,
+                "default": null,
+                "unique": false,
+                "name": "guild_id",
+                "index_name": null
+            },
+            {
+                "column_type": {
+                    "big": true,
+                    "small": false,
+                    "auto_increment": false,
+                    "__meta__": "utils.db.Integer"
+                },
+                "index": false,
+                "primary_key": false,
+                "nullable": false,
+                "default": null,
+                "unique": false,
+                "name": "channel_id",
+                "index_name": null
+            },
+            {
+                "column_type": {
+                    "timezone": false,
+                    "__meta__": "utils.db.Datetime"
+                },
+                "index": false,
+                "primary_key": false,
+                "nullable": false,
+                "default": null,
+                "unique": false,
+                "name": "timestamp",
+                "index_name": null
+            },
+            {
+                "column_type": {
+                    "length": null,
+                    "fixed": false,
+                    "__meta__": "utils.db.String"
+                },
+                "index": false,
+                "primary_key": false,
+                "nullable": true,
+                "default": "",
+                "unique": false,
+                "name": "confession_text",
+                "index_name": null
+            },
+            {
+                "column_type": {
+                    "length": null,
+                    "fixed": false,
+                    "__meta__": "utils.db.String"
+                },
+                "index": false,
+                "primary_key": false,
+                "nullable": true,
+                "default": "",
+                "unique": false,
+                "name": "image_url",
+                "index_name": null
+            },
+            {
+                "column_type": {
+                    "__meta__": "utils.db.JSON"
+                },
+                "index": false,
+                "primary_key": false,
+                "nullable": true,
+                "default": "'{}'::jsonb",
+                "unique": false,
+                "name": "attachment_urls",
+                "index_name": null
+            },
+            {
+                "column_type": {
+                    "__meta__": "utils.db.Boolean"
+                },
+                "index": false,
+                "primary_key": false,
+                "nullable": true,
+                "default": false,
+                "unique": false,
+                "name": "user_banned",
+                "index_name": null
+            }
+        ]
+    },
+    "migrations": []
+}

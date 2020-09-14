@@ -78,7 +78,7 @@ class TabularData:
         self._widths = [len(c) + 2 for c in columns]
 
     def add_row(self, row, exception_index=None):
-        # row element list for original and filtered table row
+        # row element list_role for original and filtered table row
         valid_index = 0
         elements, table_elements = [], []
         for index, element in enumerate(row):
@@ -251,40 +251,33 @@ class CustomEmbed(libEmbed):
             self.set_author(name=author.get('name', unspecified_field), url=author.get('url', unspecified_field),
                             icon_url=author.get('icon_url', unspecified_field))
 
+        footer = data.get('footer', {})
+        text = footer.get('text', f'By {author_name}' if author_name else str(unspecified_field))
+        icon_url = footer.get('icon_url', None)
+        if icon_url is not None:
+            self.set_footer(text=text, icon_url=icon_url)
+        elif avatar_url is not None:
+            self.set_footer(text=text, icon_url=str(avatar_url))
+        else:
+            self.set_footer(text=text)
+
         try:
-            footer = data['footer']
+            fields = data['fields']
         except KeyError:
-            footer = {}
-
-            if author_name:
-                footer['text'] = author_name
-
-            if avatar_url:
-                footer['icon_url'] = str(avatar_url)
+            fields = []
         finally:
-            if 'icon_url' in footer:
-                self.set_footer(text=footer.get('text', str(unspecified_field)),
-                                icon_url=footer.get('icon_url', str(unspecified_field)))
-            else:
-                self.set_footer(text=footer.get('text', str(unspecified_field)))
-
-            try:
-                fields = data['fields']
-            except KeyError:
-                fields = []
-            finally:
-                for field in fields:
-                    name = field.get('name', None) or str(unspecified_field)
-                    value = field.get('value', None) or str(unspecified_field)
-                    self.add_field(name=name, value=value,
-                                   inline=field.get('inline', 'False'))
+            for field in fields:
+                name = field.get('name', None) or str(unspecified_field)
+                value = field.get('value', None) or str(unspecified_field)
+                self.add_field(name=name, value=value,
+                               inline=field.get('inline', 'False'))
 
         return self
 
 
 class EmbedGenerator(pag.AbstractEmbedGenerator):
-    def __init__(self, embed_dict, author_name=None, avatar_url=None):
-        self.embed_dict = embed_dict
+    def __init__(self, format_dict=None, author_name=None, avatar_url=None):
+        self.format_dict = format_dict
         self.author_name = author_name
         self.avatar_url = avatar_url
 
@@ -297,11 +290,15 @@ class EmbedGenerator(pag.AbstractEmbedGenerator):
         return True
 
     def build_page(self, paginator: pag.Paginator, page: str, page_index: int) -> Embed:
-        if self.embed_dict:
-            embed = CustomEmbed.from_dict(self.embed_dict, self.author_name, self.avatar_url)
-            print(embed.to_dict())
+        if self.format_dict:
+            embed = CustomEmbed.from_dict(data=self.format_dict, author_name=self.author_name, avatar_url=self.avatar_url)
+
         else:
             embed = Embed()
+
+        embed.description = page
+        embed.set_footer(text=f"{embed.footer['text']} • p.{page_index + 1} of {len(paginator.pages)}",
+                         icon_url=embed.footer['icon_url'])
 
         return embed
 

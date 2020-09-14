@@ -1,23 +1,24 @@
+import os
 import textwrap
-import ast
 import typing
-from discord import Member, Role, Embed, Colour, File, utils
+import glob
+
+from discord import Member, Role, Embed, Colour, File, utils, HTTPException, PermissionOverwrite
 from discord.ext import commands
-from utils import db, formats
 import logging
-from collections import defaultdict
+
 import datetime
 import asyncio
 import json
 from libneko import pag
 
 
-from config import GUILD_ID, ACTIVITY_ROLE_NAME, ACTIVITY_INCLUDED_ROLES, \
-    activity_schedule_gap, activity_min_day, activity_template, role_upgrade_template, \
-    ANNOUNCEMENT_CHANNEL_ID, LOGGING_CHANNEL_ID, role_upgrade_gap, \
-    TIER1, TIER1toTIER2, TIER2, TIER2toTIER3, TIER3
-from utils import permissions, time
-from utils.formats import CustomEmbed
+from config import GUILD_ID, ACTIVITY_ROLE_NAME, ACTIVITY_INCLUDED_ROLES, RECEPTION_CHANNEL_ID, \
+    activity_schedule_gap, activity_template, activity_pm_template, role_upgrade_template, \
+    removed_member_pm_template, rejoin_invite_timeout_days, ANNOUNCEMENT_CHANNEL_ID, role_upgrade_gap, \
+    TIER1, TIER1toTIER2, TIER2, TIER2toTIER3, TIER3, base_json_dir
+from utils import time, db, formats, helpers
+from utils.formats import EmbedGenerator, CustomEmbed, Plural, pag
 
 log = logging.getLogger('root')
 
@@ -37,6 +38,14 @@ class DiscardedUsers(db.Table):
     extra = db.Column(db.JSON, default="'{}'::jsonb", nullable=False)
 
 
+class ExceptionMembers(db.Table):
+    member_id = db.Column(db.Integer(big=True), primary_key=True)
+    guild_id = db.Column(db.Integer(big=True), primary_key=True)
+    added_by = db.Column(db.Integer(big=True), nullable=False)
+    until = db.Column(db.Datetime, nullable=False)
+    reason = db.Column(db.String, default='')
+
+
 class Admin(commands.Cog):
     """
     Admin functionality
@@ -45,7 +54,16 @@ class Admin(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+# ****************  event handlers *********************
+    @commands.Cog.listener('on_member_remove')
+    async def handle_member_leave(self, member: Member):
+        # remove old member exception record if exist
+        print(f'guild: {member.guild.id} member: {member.id}')
+        await self.remove_exception_db(member.guild.id, member_id=int(member.id))
+
     async def cleanup_schedule(self):
+        """ Remove old scheduled member removal events and reschedule if no other removal event exists"""
+
         query = f"""WITH deleted AS (DELETE FROM reminders
                     WHERE event = 'schedule' AND expires < NOW() RETURNING *) 
                     SELECT id, expires, (extra #>> '{{args,1}}') AS members, 
@@ -58,12 +76,17 @@ class Admin(commands.Cog):
                     ORDER BY expires DESC
                     LIMIT 1;
                  """
-        guild = self.bot.get_guild(GUILD_ID)
+        guild = await helpers.get_guild_by_id(self.bot, GUILD_ID)
+        if guild is None:
+            return log.exception('Guild is none in cleanup_schedule function')
 
         reminder = self.bot.get_cog('Reminder')
         if reminder is None:
-            channel = guild.get_channel(ANNOUNCEMENT_CHANNEL_ID)
-            return await channel.send('Sorry, this functionality is currently unavailable. Please try again later')
+            channel = await helpers.get_channel_by_id(self.bot, guild, ANNOUNCEMENT_CHANNEL_ID)
+            if channel:
+                await channel.send('Sorry, remainder cog is currently unavailable to use in cleanup_schedule.'
+                                   'Please try again later')
+            return
 
         row = await self.bot.pool.fetchrow(query)
         if row:
@@ -80,16 +103,19 @@ class Admin(commands.Cog):
             if total is None:
                 activity_role = guild.get_role(int(row['role_id']))
                 exception_ids = json.loads(row['exceptions'])
-                exceptions = [guild.get_member(member_id) for member_id in exception_ids]
+                exceptions = [await helpers.get_member_by_id(guild, member_id) for member_id in exception_ids]
                 included_roles = json.loads(row['included_roles'])
-                log.info(exceptions)
-                inactive_members, member_text = await Admin.get_inactive_members(guild, included_roles,
-                                                                                 activity_role, exceptions)
+                inactive_members, member_text = await helpers.get_inactive_members(guild, included_roles,
+                                                                                   activity_role, exceptions)
                 activity_template_final = activity_template.format(expire_date.strftime("%Y-%m-%d %H:%M:%S"))
                 embed_dict = {'title': activity_template_final,
                               'fields': [{'name': 'Members will be discarded', 'value': member_text, 'inline': False}, ]
                               }
-                await guild.get_channel(ANNOUNCEMENT_CHANNEL_ID).send(embed=Embed.from_dict(embed_dict))
+
+                channel = await helpers.get_channel_by_id(self.bot, guild, ANNOUNCEMENT_CHANNEL_ID)
+                if channel:
+                    await channel.send(embed=Embed.from_dict(embed_dict))
+
                 await reminder.create_timer(expire_date, 'schedule', GUILD_ID,
                                             json.dumps(inactive_members), row['exceptions'], row['reason'],
                                             row['is_ban'], row['role_id'], row['included_roles'],
@@ -99,7 +125,8 @@ class Admin(commands.Cog):
                 log.info(f'The event has been rescheduled in autonomous function for '
                          f'{expire_date.strftime("%Y-%m-%d %H:%M:%S")}.')
             else:
-                log.info(f'There is already scheduled removal on {total["expires"].strftime("%Y-%m-%d %H:%M:%S")}, '
+                log.info(f'There is already scheduled member removal based on activity on '
+                         f'{total["expires"].strftime("%Y-%m-%d %H:%M:%S")}, '
                          f'so autonomous function could not schedule a new removal.')
 
     @commands.Cog.listener()
@@ -110,9 +137,106 @@ class Admin(commands.Cog):
         asyncio.ensure_future(self.update_roles(), loop=self.bot.loop)
 
     async def cog_command_error(self, ctx, error):
-        if isinstance(error, commands.BadArgument):
+        if isinstance(error, commands.NoPrivateMessage):
+            err_msg = f"In a reason, you could not run commands in DM. {error}"
+            log.exception(err_msg)
+            return await ctx.send(err_msg)
+
+        if isinstance(error, commands.BotMissingPermissions):
+            err_msg = f"I'm missing the `{error.missing_perms[0]}` permission " \
+                      f"that's required for me to run this command."
+            log.exception(err_msg)
+            return await ctx.send(err_msg)
+
+        elif isinstance(error, commands.MissingPermissions):
+            # if ctx.author.id in self.bot.config['owners']:
+            #     await ctx.reinvoke()
+            #     return
+            err_msg = f"You need to have the `{error.missing_perms[0]}` permission to run this command."
+            log.exception(err_msg)
+            return await ctx.send(err_msg)
+
+        elif isinstance(error, commands.MissingRequiredArgument):
+            err_msg = f"You're missing the `{error.param.name}` argument, which is required to run this command."
+            log.exception(err_msg)
+            return await ctx.send(err_msg)
+
+        elif isinstance(error, commands.BadArgument):
+            err_msg = f"You're running this command incorrectly - {error}. Please check the documentation."
+            log.exception(err_msg)
+            return await ctx.send(err_msg)
+
+        elif isinstance(error, commands.UserInputError):
             log.exception(error)
-            await ctx.send(error)
+            return await ctx.send(error)
+
+        raise error
+
+# *******************************************
+    @commands.command(name='set_prefix', help='Set the server prefix',
+                      usage='<prefix_to_set>\n\n'
+                            'For setting multiple prefix, use: "! ? - ...."\n\n'
+                            'Ex: !set_prefix "! -"', aliases=['s_p'])
+    @commands.has_permissions(administrator=True)
+    @commands.guild_only()
+    @commands.cooldown(1, 5, commands.BucketType.guild)
+    async def set_prefix(self, ctx, prefix: str):
+        guild = ctx.guild
+        prefixes = prefix.split(' ')
+        await self.bot.set_guild_prefixes(guild, prefixes)
+        await ctx.send(f'The prefix has been set to: **{prefixes}**')
+
+    @commands.command(name='change_permission', help='Change a channel permission based on a json file',
+                      usage='The JSON file should be in the format of freezone_text_open.json and'
+                            'stored in json_templates directory.\n\n'
+                            'Ex: !change_permission', aliases=['c_p'])
+    @commands.has_permissions(administrator=True)
+    @commands.guild_only()
+    @commands.cooldown(1, 5, commands.BucketType.guild)
+    async def change_permission(self, ctx):
+        pseudo_path = os.path.join(base_json_dir, "*.json")
+        json_files = glob.glob(pseudo_path)
+        if len(json_files) == 0:
+            ctx.send("No file has been found in json directory")
+
+        json_dict = {}
+        json_filename_text = ''
+        for index, json_path in enumerate(json_files):
+            filename = os.path.basename(json_path)
+            json_filename_text += f'**{index+1})** {filename}\n'
+            json_dict[index+1] = json_path
+
+        question = '**__Here is the list of JSON templates for channels:__**\n' \
+                   f'{json_filename_text}' \
+                   'Please type the number of file you want to use otherwise type c'
+        try:
+            abs_json_path = await helpers.get_multichoice_answer(self.bot, ctx, ctx.channel, json_dict, question)
+        except asyncio.TimeoutError as e:
+            return await ctx.send('Please type in 60 seconds next time.')
+
+        if abs_json_path is None:
+            return await ctx.send('Command has been cancelled.')
+
+        with open(abs_json_path, 'r', encoding='utf-8') as r:
+            try:
+                perms = json.load(r)
+            except Exception as e:
+                return await ctx.send(f"Encountered error during JSON read: {e}")
+
+        channel_settings = perms['settings']
+        guild = ctx.guild
+        channel_name, channel_type = channel_settings['channelName'], channel_settings['channelType']
+        channel = await helpers.get_channel_by_name(guild, channel_name, channel_type)
+        if channel:
+            role_settings = channel_settings['permissionOverrides']
+            for role_setting in role_settings:
+                role_name = role_setting['roleName']
+                role = await helpers.get_role_by_name(guild, role_name)
+                if role:
+                    perms = role_setting['permissions']
+                    overwrite = PermissionOverwrite()
+                    overwrite.update(**perms)
+                    await channel.set_permissions(role, overwrite=overwrite)
 
     @commands.group(name='discard', help='Command group for discarding members',
                     usage='This is not a command but a command group.', hidden=True)
@@ -120,9 +244,10 @@ class Admin(commands.Cog):
         pass
 
     @discard.command(name='by_role', help='Kick / ban all members with a given role',
-                     usage='@role_mention [optional True for ban/ False for Kick] '
-                           '[optional Exception members: @member_mentions]\n'
-                           'Ex: !discard by_role @Yabancilar True @abc @abd')
+                     usage='<@role_mention> <is_ban> <@exceptions>\n\n'
+                           'is_ban: bool, default True - True for ban/ False for Kick\n'
+                           'exceptions: List[Member], default None - Members will be excluded for this op.\n\n'
+                           'Ex: !discard by_role @Yabancilar True @mem1 @mem2')
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True, kick_members=True, ban_members=True)
     async def by_role(self, ctx, role: Role, is_ban: typing.Optional[bool] = False,
@@ -136,6 +261,13 @@ class Admin(commands.Cog):
             return
 
         guild = ctx.guild
+
+        # get global exception members and include them in exceptions
+        global_exception_member_records = await self.fetch_all_exceptions(self.bot.pool, guild.id)
+        global_exception_members = [await helpers.get_member_by_id(guild, record['member_id'])
+                                    for record in global_exception_member_records]
+        exceptions = [member for member in global_exception_members if member and member not in exceptions]
+
         valid_members = []
         query_params = []
         member_text = ''
@@ -169,8 +301,9 @@ class Admin(commands.Cog):
                       'timestamp': datetime.datetime.utcnow().__str__(),
                       'fields': [{'name': "Operation type", 'value': 'Ban' if is_ban else 'Kick', 'inline': False},
                                  {'name': "Role", 'value': role.name, 'inline': False},
-                                 {'name': 'Member list', 'value': member_text, 'inline': False},
-                                 {'name': 'Exceptions', 'value': exception_member_text, 'inline': False},
+                                 {'name': 'Member list_role', 'value': member_text, 'inline': False},
+                                 {'name': 'Exceptions (some may come from global exceptions)',
+                                  'value': exception_member_text, 'inline': False},
                                  {'name': 'Reason', 'value': reason, 'inline': False},
                                  ],
                       }
@@ -191,7 +324,9 @@ class Admin(commands.Cog):
             return await ctx.send('Operation has successfully finished.')
 
     @discard.command(name='fetch', help='Display all discarded users\n',
-                     usage='Ex: !discard fetch [optional True for csv file]')
+                     usage='<to_csv>\n\n'
+                           'to_csv: bool, default False - True for writing to CSV otherwise False\n\n'
+                           'Ex: !discard fetch True')
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True, kick_members=True, ban_members=True)
     async def fetch(self, ctx, to_csv: typing.Optional[bool] = False):
@@ -209,22 +344,6 @@ class Admin(commands.Cog):
         if len(records) == 0:
             return await ctx.send('No results found...')
 
-        # e = Embed(colour=0xF02D7D)
-        # data = defaultdict(list)
-
-        # for record in records:
-        #     for key, value in record.items():
-        #         data[key].append(value if value else 'N/A')
-        #
-        # num_chars = 0
-        # for key, values in data.items():
-        #     e.add_field(name=key, value='\n'.join(map(str, values)))
-
-        # a hack to allow multiple inline fields
-        # e.set_footer(text=format(formats.plural(len(records)), 'record') + '\u2003' * 100 + '\u200b')
-        # nav = pag.EmbedNavigatorFactory(factory=formats.EmbedGenerator({}), max_lines=10)
-        # nav += data.render()
-        # nav = pag.EmbedNavigatorFactory(max_lines=20)
         nav = pag.StringNavigatorFactory(max_lines=20, enable_truncation=False)
         data = formats.TabularData(nav.line_break)
         table_columns = ["User", "Num. discarded", "Joined", "Discarded", "Type", "Role", "Reason"]
@@ -241,7 +360,7 @@ class Admin(commands.Cog):
             f = data.to_csv(["ID", "Nickname", "Num. discarded", "Joined", "Discarded", "Type", "Role", "Reason"])
             await ctx.channel.send(content="Removed users CSV file", file=File(fp=f, filename="removed_user_info.txt"))
 
-    @discard.command(name='clear', help='Remove all removed user records',
+    @discard.command(name='clear', help='Remove all discarded user records',
                      usage="Ex: !discard clear")
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True, kick_members=True, ban_members=True)
@@ -257,40 +376,21 @@ class Admin(commands.Cog):
 
         await ctx.send('Successfully deleted all records.')
 
-    @commands.group(name='schedule', help='Command group for scheduling member removal',
+    @commands.group(name='schedule', help='Command group for scheduling and controlling member removal ops',
                     usage='This is not a command but a command group.', hidden=True)
     async def schedule(self, ctx):
         pass
 
-    @staticmethod
-    async def get_inactive_members(guild, included_roles, activity_role, exceptions):
-        valid_members = []
-        member_text = ''
-
-        for member in guild.members:
-            member_delta = datetime.datetime.utcnow() - member.joined_at
-            is_active = is_included = False
-            if member not in exceptions and member_delta.days > activity_min_day:
-                for role in member.roles:
-                    if role is activity_role:
-                        is_active = True
-                        break
-
-                    if role.name in included_roles:
-                        is_included = True
-
-                if not is_active and is_included:
-                    valid_members.append(member.id)
-                    member_text += (member.mention + '\n')
-
-        return valid_members, member_text
-
     @schedule.command(name='create', help='Schedule an removal event based on activity role',
-                      usage='duration [optional included roles: @role_mention]'
-                            '[True for ban/ False for Kick] '
-                            '[optional Exception members: @member_mentions] [optional reason]\n'
-                            'Example durations: 30d, "until thursday at 3PM", "2024-12-31"'
-                            'Note that times are in UTC.\n\n'
+                      usage='<duration> <@included_roles> <is_ban> <@exceptions> <reason>\n\n'
+                            'duration: time.FutureTime, required - human language duration expression. '
+                            'Example durations: 30d, "until thursday at 3PM", "2024-12-31". '
+                            'Note that times are in UTC.\n'
+                            'included_roles: List[Role], default None - role names, mentions or ids '
+                            'the operation will be executed on. If None, all activity roles in config will be used.\n'
+                            'is_ban: bool, default False - True for ban false for kick when a member is discarded.\n'
+                            'exceptions: List[Member], default None - Members will be excluded for this op.\n'
+                            'reason: str, default "Discharged on scheduled removal" - reason to this operation.\n\n'
                             "Ex: !schedule create 10d @Çaylaklar False @abc @abd 'ban due to inactivity'")
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True, kick_members=True, ban_members=True)
@@ -310,7 +410,6 @@ class Admin(commands.Cog):
                     AND event = 'schedule'
                     AND extra #>> '{{args,0}}' = $1;
                 """
-        # total = await ctx.db.fetchrow(query, str(guild.id))
         total = await self.bot.pool.fetchrow(query, str(guild.id))
         if total:
             return await ctx.send(f'There is already a scheduled event has the time gap less than {activity_schedule_gap} days')
@@ -328,11 +427,15 @@ class Admin(commands.Cog):
         if included_roles is None:
             return await self.cog_command_error(ctx, commands.BadArgument('Role defining member set is not valid.'))
 
-        guild = ctx.guild
+        # get global exception members and include them in exceptions
+        global_exception_member_records = await self.fetch_all_exceptions(self.bot.pool, guild.id)
+        global_exception_members = [await helpers.get_member_by_id(guild, record['member_id'])
+                                    for record in global_exception_member_records]
+        exceptions = [member for member in global_exception_members if member and member not in exceptions]
         exception_member_text = ''.join(f'{member.mention}\n' for member in exceptions)
 
-        valid_members, member_text = await Admin.get_inactive_members(guild, included_roles,
-                                                                      activity_role, exceptions)
+        valid_members, member_text = await helpers.get_inactive_members(guild, included_roles,
+                                                                        activity_role, exceptions)
 
         if exception_member_text is '':
             exception_member_text = 'No exception member'
@@ -346,7 +449,7 @@ class Admin(commands.Cog):
                                  {'name': "Included Roles", 'value': included_role_text, 'inline': False},
                                  {'name': 'Members will be discarded', 'value': member_text, 'inline': False},
                                  {'name': 'Date of removal', 'value': duration.dt.strftime("%Y-%m-%d %H:%M:%S"), 'inline': False},
-                                 {'name': 'Exceptions', 'value': exception_member_text, 'inline': False},
+                                 {'name': 'Exceptions (some may come from global exceptions)', 'value': exception_member_text, 'inline': False},
                                  {'name': 'Reason', 'value': reason, 'inline': False},
                                  ],
                       }
@@ -359,7 +462,10 @@ class Admin(commands.Cog):
             embed_dict = {'title': activity_template_final,
                           'fields': [{'name': 'Members will be discarded', 'value': member_text, 'inline': False},]
                           }
-            await guild.get_channel(ANNOUNCEMENT_CHANNEL_ID).send(embed=Embed.from_dict(embed_dict))
+            channel = await helpers.get_channel_by_id(self.bot, guild, ANNOUNCEMENT_CHANNEL_ID)
+            if channel:
+                await channel.send(embed=Embed.from_dict(embed_dict))
+
             reminder = self.bot.get_cog('Reminder')
             if reminder is None:
                 return await ctx.send('Sorry, this functionality is currently unavailable. Please try again later')
@@ -370,16 +476,27 @@ class Admin(commands.Cog):
                                         reason, is_ban, activity_role.id, json.dumps(included_roles),
                                         connection=ctx.db,
                                         created=ctx.message.created_at)
-            await ctx.send(f'The event has been scheduled for {duration.dt.strftime("%Y-%m-%d %H:%M:%S")}.')
+
+            # send a pm to all user to announce removal
+            filled_pm_message = activity_pm_template.format(guild.name, duration.dt.strftime("%Y-%m-%d %H:%M:%S"))
+            for member_id in valid_members:
+                member = await helpers.get_member_by_id(guild, member_id)
+                if member:
+                    await member.send(filled_pm_message)
+
+            await ctx.send(f'The removal event has been scheduled for {duration.dt.strftime("%Y-%m-%d %H:%M:%S")}.')
+            log.info(f'A removal event has been scheduled for the date: {duration.dt.strftime("%Y-%m-%d %H:%M:%S")}.')
         else:
             return await ctx.send('Operation has been cancelled.')
 
     @schedule.command(name='delete', help='Delete a scheduled event with id',
-                      usage="Run schedule_list command to get currently queued events"
-                            "Ex: !schedule delete id")
+                      usage="<item_id>\n\n"
+                            "item_id: int, required\n"
+                            "Run fetch command to get currently queued events.\n\n"
+                            "Ex: !schedule delete 124")
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True, kick_members=True, ban_members=True)
-    async def delete(self, ctx, id: int):
+    async def delete(self, ctx, item_id: int):
         query = """DELETE FROM reminders
                     WHERE id=$1
                     AND event = 'schedule';
@@ -388,7 +505,7 @@ class Admin(commands.Cog):
         if not confirm:
             return await ctx.send('Operation has been aborted.')
 
-        status = await ctx.db.execute(query, id)
+        status = await ctx.db.execute(query, item_id)
         if status == 'DELETE 0':
             return await ctx.send('Could not delete any event with that ID.')
 
@@ -420,11 +537,11 @@ class Admin(commands.Cog):
 
         return await ctx.send(f'Successfully deleted {formats.Plural(total):scheduled events}.')
 
-    @schedule.command(name='list', help='List last 10 scheduled events',
-                      usage="Ex: !schedule list")
+    @schedule.command(name='fetch', help='Fetch last 10 scheduled events',
+                      usage="Ex: !schedule fetch")
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True, kick_members=True, ban_members=True)
-    async def list(self, ctx):
+    async def fetch_schedule(self, ctx):
         query = f"""SELECT id, expires, (extra #>> '{{args,1}}') AS members, extra #>> '{{args,2}}' AS exceptions, 
                     extra #>> '{{args,3}}' AS reason, 
                     (extra #>> '{{args,4}}')::boolean AS is_ban
@@ -447,10 +564,12 @@ class Admin(commands.Cog):
         else:
             embed_dict['footer'] = {'text': f'{len(records)} reminder{"s" if len(records) > 1 else ""}'}
 
-        fields = []
-        for _id, expires, _, _, reason, _ in records:
+        fields, _id_to_row = [], {}
+        for index, (_id, expires, _, _, reason, _) in enumerate(records):
             shorten = textwrap.shorten(reason, width=512)
-            field = {'name': f'{_id}: In {time.human_timedelta(expires)}', 'value': shorten, 'inline': False}
+            field = {'name': f'**{index+1})** ID: {_id}: In {time.human_timedelta(expires)}',
+                     'value': shorten, 'inline': False}
+            _id_to_row[index+1] = _id
             fields.append(field)
 
         embed_dict['fields'] = fields
@@ -458,101 +577,171 @@ class Admin(commands.Cog):
         e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name, avatar_url=self.bot.user.avatar_url)
         await ctx.send(embed=e.to_embed())
 
-        max_record_id = max(records, key=lambda x: x['id'])['id']
-
-        def representsInt(s):
-            try:
-                s = int(s)
-                return s
-            except ValueError:
-                return -1
-
-        def check(m):
-            input_checker = m.content == 'c' or (0 < representsInt(m.content) <= max_record_id)
-            return input_checker and m.channel == ctx.channel
-
-        await ctx.send('Please type the row number for check details otherwise type c')
-
+        question = 'Please type the row number for check details otherwise type c'
         try:
-            msg = await self.bot.loop.create_task(self.bot.wait_for('message', check=check, timeout=60))
+            id_ = await helpers.get_multichoice_answer(self.bot, ctx, ctx.channel, _id_to_row, question)
         except asyncio.TimeoutError as e:
-            log.exception('Input timeout error', exc_info=True)
             return await ctx.send('Please type in 60 seconds next time.')
-        else:
-            id_ = representsInt(msg.content)
-            if id_ > 0:
-                record = next((record for record in records if record['id'] == id_), None)
-                member_list = json.loads(record['members'])
-                exceptions_list = json.loads(record['exceptions'])
-                member_list_str = ''.join([f'<@{member_id}>\n' for member_id in member_list])
-                exceptions_list_str = ''.join([f'<@{member_id}>\n' for member_id in exceptions_list])
-                embed_dict = {'title': 'Scheduled removal', 'colour': Colour.blurple(),
-                              'fields': [
-                                  {'name': "Operation type", 'value': 'Ban' if record['is_ban'] else 'Kick', 'inline': False},
-                                  {'name': 'Members will be discarded', 'value': member_list_str, 'inline': False},
-                                  {'name': 'Exception members', 'value': exceptions_list_str, 'inline': False},
-                                  {'name': 'Date of removal', 'value': record['expires'].strftime("%Y-%m-%d %H:%M:%S"),
-                                   'inline': False},
-                                  {'name': 'Reason', 'value': record['reason'], 'inline': False},
-                                  ],
-                              }
-                e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name, avatar_url=self.bot.user.avatar_url)
-                await ctx.send(embed=e.to_embed())
-            else:
-                await ctx.send('Command has been cancelled.')
 
-    @commands.Cog.listener()
-    async def on_schedule_timer_complete(self, timer):
-        guild_id, member_id_list, _, reason, is_ban, activity_role_id, _ = timer.args
-        member_id_list = json.loads(member_id_list)
-        await self.bot.wait_until_ready()
+        if id_ is None:
+            return await ctx.send('Command has been cancelled.')
 
-        guild = self.bot.get_guild(guild_id)
-        activity_role = guild.get_role(activity_role_id)
-        if guild is None:
-            # RIP
-            return log.exception('Guild has not found')
+        record = next((record for record in records if record['id'] == id_), None)
+        member_list = json.loads(record['members'])
+        exceptions_list = json.loads(record['exceptions'])
+        member_list_str = ''.join([f'<@{member_id}>\n' for member_id in member_list])
+        exceptions_list_str = ''.join([f'<@{member_id}>\n' for member_id in exceptions_list])
+        embed_dict = {'title': 'Scheduled removal', 'colour': Colour.blurple(),
+                      'fields': [
+                          {'name': "Operation type", 'value': 'Ban' if record['is_ban'] else 'Kick', 'inline': False},
+                          {'name': 'Members will be discarded', 'value': member_list_str, 'inline': False},
+                          {'name': 'Exception members', 'value': exceptions_list_str, 'inline': False},
+                          {'name': 'Date of removal', 'value': record['expires'].strftime("%Y-%m-%d %H:%M:%S"),
+                           'inline': False},
+                          {'name': 'Reason', 'value': record['reason'], 'inline': False},
+                          ],
+                      }
+        e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name, avatar_url=self.bot.user.avatar_url)
+        await ctx.send(embed=e.to_embed())
 
-        query_params = []
-        col_list = DiscardedUsers.get_col_names(excluded=['id', 'num_discarded', 'extra'])
-        col_names = ', '.join(col_list)
-        col_val_placeholder = ', '.join(f'${3 + i}' for i in range(len(col_list)))
-        query = f"""INSERT INTO discardedusers AS du (id, num_discarded, {col_names})
-                    VALUES ($1, $2, {col_val_placeholder})
-                    ON CONFLICT (id)
+    @schedule.command(name='add_exception', help='Add an exception member which '
+                                                 'will be excluded on all automated member removals',
+                      usage="<duration> <@member> <reason>\n\n"
+                            "duration: time.FutureTime - human language duration expression."
+                            "member: Member, required - a member mention, id or name to be excluded.\n"
+                            "reason: str, required - reason to the member exclusion op.\n"
+                            "Ex: !schedule add_exception 14days @mem1 'reason for not'",
+                      aliases=['a_e'])
+    @commands.guild_only()
+    @commands.has_permissions(manage_roles=True, kick_members=True, ban_members=True)
+    async def add_exception(self, ctx, duration: time.FutureTime, member: Member, reason: str):
+        query = f"""INSERT INTO exceptionmembers (member_id, guild_id, added_by, until, reason)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (member_id, guild_id)
                     DO UPDATE
-                    SET (num_discarded, {col_names}) = ROW(du.num_discarded+1, {col_val_placeholder});
+                    SET added_by = EXCLUDED.added_by, until = EXCLUDED.until, reason=EXCLUDED.reason;
                 """
+        author = ctx.author
+        guild = ctx.guild
+        if member is None:
+            return await ctx.send(f'Member not found.')
 
-        for member_id in member_id_list:
-            member = guild.get_member(member_id)
-            if activity_role not in member.roles:
-                top_role_id = member.top_role.id
+        # first remove old exceptions from DB
+        await self.remove_exception_db(guild.id)
 
-                if is_ban:
-                    await member.ban(reason=reason)
-                else:
-                    await member.kick(reason=reason)
+        await self.bot.pool.execute(query, member.id, guild.id, author.id, duration.dt, reason)
+        return await ctx.send(f'Exception added for: {member.mention} by: {author.mention} '
+                              f'until: {duration.dt.strftime("%Y-%m-%d %H:%M:%S")} for reason: {reason}')
 
-                query_params.append(
-                    (member.id, 1, member.display_name, member.joined_at, datetime.datetime.utcnow(),
-                     is_ban, top_role_id, reason))
+    @staticmethod
+    async def fetch_all_exceptions(db_conn, guild_id):
+        """ Fetch all exceptions for given guild ID """
+        query = """ SELECT * FROM exceptionmembers
+                    WHERE guild_id = $1"""
+        return await db_conn.fetch(query, guild_id)
 
-        await self.bot.pool.executemany(query, query_params)
+    async def remove_exception_db(self, guild_id, member_id: int = None):
+        """ Remove all exceptions older than now.
+        If member_id given, removal will be based on member"""
+        query = """DELETE FROM exceptionmembers
+                WHERE (guild_id = $1) AND (until < NOW() OR 
+                ($2::BIGINT is not null and member_id::BIGINT = $2))"""
 
-#     ********* autonomous functions ************
-    @commands.group(name='role', help='Command group for role based operations',
+        # first clear DB
+        await self.fetch_all_exceptions(self.bot.pool, guild_id)
+
+        return await self.bot.pool.execute(query, guild_id, member_id)
+
+    @schedule.command(name='fetch_exception', help='Fetch all exceptions in DB',
+                      usage="Ex: !schedule fetch_exception",
+                      aliases=['f_e'])
+    @commands.guild_only()
+    @commands.has_permissions(manage_roles=True, kick_members=True, ban_members=True)
+    async def fetch_exception(self, ctx):
+        author = ctx.author
+        guild = ctx.guild
+
+        records = await self.fetch_all_exceptions(self.bot.pool, guild.id)
+        if len(records) == 0:
+            return await ctx.send(f'No exception has been found.')
+
+        format_dict = {'title': 'Member exception list',
+                       'footer': {'text': f'Showing {Plural(len(records)):exception}'}}
+        e_generator = EmbedGenerator(format_dict=format_dict, author_name=author.name,
+                                     avatar_url=self.bot.user.avatar_url)
+        nav = pag.EmbedNavigatorFactory(factory=e_generator, max_lines=20)
+        for member_id, _, added_by_id, until, reason in records:
+            member = await helpers.get_member_by_id(guild, member_id)
+            if member:
+                added_by_member = await helpers.get_member_by_id(guild, added_by_id)
+                shorten = textwrap.shorten(reason, width=500)
+                line = f'**Member:** {member.mention} **ID**: {member_id} | ' \
+                       f'**Added_by:**: {added_by_member.mention if added_by_member else added_by_id} | ' \
+                       f'**Until:** {until.strftime("%Y-%m-%d %H:%M:%S")} -> {shorten}'
+                nav.add_line(line)
+                nav.add_line('**-----------------------------**')
+
+        nav.start(ctx=ctx)
+
+    @schedule.command(name='delete_exception', help='Delete an exception for a member.',
+                      usage="Ex: !schedule delete_exception",
+                      aliases=['d_e'])
+    @commands.guild_only()
+    @commands.has_permissions(manage_roles=True, kick_members=True, ban_members=True)
+    async def delete_exception(self, ctx):
+        author = ctx.author
+        guild = ctx.guild
+
+        records = await self.fetch_all_exceptions(self.bot.pool, guild.id)
+        if len(records) == 0:
+            return await ctx.send(f'No exception has been found.')
+
+        format_dict = {'title': 'Member exception list',
+                       'footer': {'text': f'Showing {Plural(len(records)):exception}'}}
+        e_generator = EmbedGenerator(format_dict=format_dict, author_name=author.name,
+                                     avatar_url=self.bot.user.avatar_url)
+        nav = pag.EmbedNavigatorFactory(factory=e_generator, max_lines=20)
+        _row_to_member_id = {}
+        for index, (member_id, _, added_by_id, until, reason) in enumerate(records):
+            member = await helpers.get_member_by_id(guild, member_id)
+            if member:
+                added_by_member = await helpers.get_member_by_id(guild, added_by_id)
+                shorten = textwrap.shorten(reason, width=500)
+                line = f'**{index+1})** **Member:** {member.mention} **ID**: {member_id} | ' \
+                       f'**Added_by:**: {added_by_member.mention if added_by_member else added_by_id} | ' \
+                       f'**Until:** {until.strftime("%Y-%m-%d %H:%M:%S")} -> {shorten}'
+                _row_to_member_id[index+1] = member.id
+                nav.add_line(line)
+                nav.add_line('**-----------------------------**')
+
+        nav.start(ctx=ctx)
+
+        question = 'Please type the row number for delete an exception otherwise type c'
+        try:
+            member_id_or_none = await helpers.get_multichoice_answer(self.bot, ctx, ctx.channel, _row_to_member_id, question)
+        except asyncio.TimeoutError as e:
+            return await ctx.send('Please type in 60 seconds next time.')
+
+        if member_id_or_none is None:
+            return await ctx.send('Command has been cancelled.')
+
+        return await self.remove_exception_db(guild.id, member_id_or_none)
+
+    @commands.group(name='role', help='Command group for role based member operations',
                     usage='This is not a command but a command group.', hidden=True)
     async def role(self, ctx):
         pass
 
-    @role.command(name='list', help='Get the list of users with that role',
-                  usage='[@role_mention or role name [optional True for mention False for comma separated format]]\n'
-                        'You can give role name or mention',
+    @role.command(name='list', help='List the user with given roles',
+                  usage='<@roles> <is_cs>\n\n'
+                        'roles: list[Role], required - role mentions, ids, or names to be processed\n'
+                        'is_cs: bool, default False - output member name with comma separated format or not\n'
+                        'If multiple roles given, the intersection fo them will be listed.\n\n'
+                        'Ex: !role list @Yabancılar',
                   aliases=['r'])
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True, kick_members=True, ban_members=True)
-    async def list(self, ctx, roles: commands.Greedy[Role], is_cs: typing.Optional[bool] = False):
+    async def list_role(self, ctx, roles: commands.Greedy[Role], is_cs: typing.Optional[bool] = False):
         if not roles:
             raise commands.BadArgument('No role is not given.')
 
@@ -609,62 +798,143 @@ class Admin(commands.Cog):
         else:
             embed_dict['footer'] = {'text': f'{len(records)} reminder{"s" if len(records) > 1 else ""}'}
 
-        fields = []
-        for _id, expires, _, _ in records:
+        fields, _id_to_row = [], {}
+        for index, (_id, expires, _, _) in enumerate(records):
             shorten = textwrap.shorten('Role upgrade', width=512)
-            field = {'name': f'{_id}: In {time.human_timedelta(expires)}', 'value': shorten, 'inline': False}
+            field = {'name': f'**{index+1})** {_id}: In {time.human_timedelta(expires)}', 'value': shorten, 'inline': False}
             fields.append(field)
+            _id_to_row[index+1] = _id
 
         embed_dict['fields'] = fields
 
         e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name, avatar_url=self.bot.user.avatar_url)
         await ctx.send(embed=e.to_embed())
 
-        max_record_id = max(records, key=lambda x: x['id'])['id']
-
-        def representsInt(s):
-            try:
-                s = int(s)
-                return s
-            except ValueError:
-                return -1
-
-        def check(m):
-            input_checker = m.content == 'c' or (0 < representsInt(m.content) <= max_record_id)
-            return input_checker and m.channel == ctx.channel
-
-        await ctx.send('Please type the row number for check details otherwise type c')
-
+        question = 'Please type the row number for check details otherwise type c'
         try:
-            msg = await self.bot.loop.create_task(self.bot.wait_for('message', check=check, timeout=60))
+            id_ = await helpers.get_multichoice_answer(self.bot, ctx, ctx.channel, _id_to_row, question)
         except asyncio.TimeoutError as e:
-            log.exception('Input timeout error', exc_info=True)
             return await ctx.send('Please type in 60 seconds next time.')
-        else:
-            id_ = representsInt(msg.content)
-            if id_ > 0:
-                record = next((record for record in records if record['id'] == id_), None)
-                tier1to2 = json.loads(record['tier1to2'])
-                tier2to3 = json.loads(record['tier2to3'])
-                tier1to2_str = ''.join([f'<@{member_id}>\n' for member_id in tier1to2])
-                tier2to3_str = ''.join([f'<@{member_id}>\n' for member_id in tier2to3])
-                if tier1to2_str == '':
-                    tier1to2_str = 'Empty upgrade list'
 
-                if tier2to3_str == '':
-                    tier2to3_str = 'Empty upgrade list'
-                embed_dict = {'title': 'Role upgrade',
-                              'fields': [
-                                  {'name': f'From: {TIER1} to {TIER2}', 'value': tier1to2_str, 'inline': False},
-                                  {'name': f'From: {TIER2} to {TIER3}', 'value': tier2to3_str, 'inline': False},
-                                  {'name': 'Date of removal', 'value': record['expires'].strftime("%Y-%m-%d %H:%M:%S"),
-                                   'inline': False},
-                              ],
-                              }
-                e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name, avatar_url=self.bot.user.avatar_url)
-                await ctx.send(embed=e.to_embed())
-            else:
-                await ctx.send('Command has been cancelled.')
+        if id_ is None:
+            return await ctx.send('Command has been cancelled.')
+
+        record = next((record for record in records if record['id'] == id_), None)
+        tier1to2 = json.loads(record['tier1to2'])
+        tier2to3 = json.loads(record['tier2to3'])
+        tier1to2_str = ''.join([f'<@{member_id}>\n' for member_id in tier1to2])
+        tier2to3_str = ''.join([f'<@{member_id}>\n' for member_id in tier2to3])
+        if tier1to2_str == '':
+            tier1to2_str = 'Empty upgrade list_role'
+
+        if tier2to3_str == '':
+            tier2to3_str = 'Empty upgrade list_role'
+        embed_dict = {'title': 'Role upgrade',
+                      'fields': [
+                          {'name': f'From: {TIER1} to {TIER2}', 'value': tier1to2_str, 'inline': False},
+                          {'name': f'From: {TIER2} to {TIER3}', 'value': tier2to3_str, 'inline': False},
+                          {'name': 'Date of removal', 'value': record['expires'].strftime("%Y-%m-%d %H:%M:%S"),
+                           'inline': False},
+                      ],
+                      }
+        e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name, avatar_url=self.bot.user.avatar_url)
+        await ctx.send(embed=e.to_embed())
+
+#     ********* event handlers ******************
+    @commands.Cog.listener()
+    async def on_schedule_timer_complete(self, timer):
+        """ Scheduled member removal event handler """
+        guild_id, member_id_list, _, reason, is_ban, activity_role_id, _ = timer.args
+        member_id_list = json.loads(member_id_list)
+        await self.bot.wait_until_ready()
+
+        guild = await helpers.get_guild_by_id(self.bot, guild_id)
+        if guild is None:
+            return log.exception('Guild has not found on scheduled removal event in event handler')
+
+        activity_role = guild.get_role(activity_role_id)
+        if activity_role is None:
+            return log.exception('Activity role has not found on scheduled removal event in event handler')
+
+        reception_channel = await helpers.get_channel_by_id(self.bot, guild, RECEPTION_CHANNEL_ID)
+        invite_link = None
+        if reception_channel:
+            try:
+                invite_link = reception_channel.create_invite((rejoin_invite_timeout_days * 86400), reason=reason)
+            except HTTPException:
+                pass
+
+        query_params = []
+        col_list = DiscardedUsers.get_col_names(excluded=['id', 'num_discarded', 'extra'])
+        col_names = ', '.join(col_list)
+        col_val_placeholder = ', '.join(f'${3 + i}' for i in range(len(col_list)))
+        query = f"""INSERT INTO discardedusers AS du (id, num_discarded, {col_names})
+                        VALUES ($1, $2, {col_val_placeholder})
+                        ON CONFLICT (id)
+                        DO UPDATE
+                        SET (num_discarded, {col_names}) = ROW(du.num_discarded+1, {col_val_placeholder});
+                    """
+
+        for member_id in member_id_list:
+            member = await helpers.get_member_by_id(guild, member_id)
+            if member is not None and activity_role not in member.roles:
+                top_role_id = member.top_role.id
+
+                if is_ban:
+                    await member.ban(reason=reason)
+                else:
+                    # send a rejoin message to a member if kicked
+                    if invite_link:
+                        rejoin_msg = removed_member_pm_template.format(guild.name, invite_link,
+                                                                       rejoin_invite_timeout_days)
+                        await member.send(rejoin_msg)
+
+                    await member.kick(reason=reason)
+
+                query_params.append(
+                    (member.id, 1, member.display_name, member.joined_at, datetime.datetime.utcnow(),
+                     is_ban, top_role_id, reason))
+
+        await self.bot.pool.executemany(query, query_params)
+        log.info(f'Scheduled removal event created at: {timer.created_at.strftime("%Y-%m-%d %H:%M:%S")} '
+                 f'has been executed on: {datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}\n'
+                 f'Expected removal date was: {timer.expires.strftime("%Y-%m-%d %H:%M:%S")}')
+
+    @commands.Cog.listener()
+    async def on_role_upgrade_timer_complete(self, timer):
+        guild_id, tier1to2, tier2to3 = timer.args
+        tier1to2,  tier2to3 = json.loads(tier1to2), json.loads(tier2to3)
+        log.info(f'Role upgrade has been started. '
+                 f'Updates: {TIER1} to {TIER2}: {tier1to2} | {TIER2} to {TIER3}: {tier2to3} ')
+        await self.bot.wait_until_ready()
+
+        guild = await helpers.get_guild_by_id(self.bot, guild_id)
+        if guild is None:
+            return log.exception(f"No guild has been found for ID: {guild_id} on role upgrade")
+        elif not guild.chunked:
+            await self.bot.request_offline_members(guild)
+
+        tier1_role = utils.get(guild.roles, name=TIER1)
+        tier2_role = utils.get(guild.roles, name=TIER2)
+        tier3_role = utils.get(guild.roles, name=TIER3)
+
+        async def switch_role(member_list, from_role, to_role):
+            for member_id in member_list:
+                member = await helpers.get_member_by_id(guild, member_id)
+                if member:
+                    await member.add_roles(to_role, reason='Autonomous Role upgrade')
+                    await member.remove_roles(from_role, reason='Autonomous Role upgrade')
+                    log.info(f'Member: {member.name} role has switched from: {from_role.name} to· {to_role.name}')
+                    channel = await helpers.get_channel_by_id(self.bot, guild, ANNOUNCEMENT_CHANNEL_ID)
+                    if channel:
+                        await channel.send(role_upgrade_template.format(member.mention, from_role.name, to_role.name))
+
+        await switch_role(tier1to2, tier1_role, tier2_role)
+        await switch_role(tier2to3, tier2_role, tier3_role)
+
+        return await self.update_roles()
+
+#     ********* autonomous functions ************
 
     async def update_roles(self):
         query = f"""SELECT *
@@ -677,9 +947,13 @@ class Admin(commands.Cog):
         total = await self.bot.pool.fetchrow(query, str(GUILD_ID))
 
         if total:
-            return log.info('There is already schedule role upgrade')
+            return log.info(f'There is already schedule role upgrade on date: '
+                            f'{total["expires"].strftime("%Y-%m-%d %H:%M:%S")}')
 
-        guild = self.bot.get_guild(GUILD_ID)
+        guild = await helpers.get_guild_by_id(self.bot, GUILD_ID)
+        if guild is None:
+            return log.exception('Guild is none in update_roles function')
+
         if not guild.chunked:
             await self.bot.request_offline_members(guild)
 
@@ -687,7 +961,6 @@ class Admin(commands.Cog):
         utc_today = datetime.datetime.utcnow()
         role_upgrade_gap_dt = time.FutureTime(role_upgrade_gap)
 
-        log.info(role_upgrade_gap_dt.dt)
         for member in guild.members:
             isTier1, isTier2 = False, False
             for role in member.roles:
@@ -699,55 +972,26 @@ class Admin(commands.Cog):
                     isTier2 = True
                     break
 
-            if isTier1 and (utc_today - member.joined_at).days > TIER1toTIER2:
+            if isTier1 and (role_upgrade_gap_dt.dt - member.joined_at).days > TIER1toTIER2:
                 tier1to2.append(member.id)
 
-            elif isTier2 and (utc_today - member.joined_at).days > TIER2toTIER3:
+            elif isTier2 and (role_upgrade_gap_dt.dt - member.joined_at).days > TIER2toTIER3:
                 tier2to3.append(member.id)
 
         reminder = self.bot.get_cog('Reminder')
         if reminder is None:
             return log.exception('Role upgrade timer has not been handled.')
 
-        log.info(f"{TIER1} to {TIER2}: {tier1to2} | {TIER2} to {TIER3}: {tier2to3}")
         if tier1to2 or tier2to3:
-            log.info(f'Role upgrade has been scheduled to {role_upgrade_gap_dt.dt}')
+            log.info(f'Role upgrade has been scheduled to {role_upgrade_gap_dt.dt}\n'
+                     f'Updates: {TIER1} to {TIER2}: {tier1to2} | {TIER2} to {TIER3}: {tier2to3}')
             return await reminder.create_timer(role_upgrade_gap_dt.dt, 'role_upgrade', GUILD_ID,
                                                json.dumps(tier1to2), json.dumps(tier2to3),
                                                connection=self.bot.pool,
                                                created=utc_today)
-
-    @commands.Cog.listener()
-    async def on_role_upgrade_timer_complete(self, timer):
-        log.info('Role update has been started')
-        guild_id, tier1to2, tier2to3 = timer.args
-        tier1to2,  tier2to3 = json.loads(tier1to2), json.loads(tier2to3)
-        await self.bot.wait_until_ready()
-
-        guild = self.bot.get_guild(guild_id)
-        if guild is None:
-            # RIP
-            return
-        elif not guild.chunked:
-            await self.bot.request_offline_members(guild)
-
-        tier1_role = utils.get(guild.roles, name=TIER1)
-        tier2_role = utils.get(guild.roles, name=TIER2)
-        tier3_role = utils.get(guild.roles, name=TIER3)
-
-        async def switch_role(member_list, from_role, to_role):
-            for member_id in member_list:
-                member = guild.get_member(member_id)
-                await member.add_roles(to_role, reason='Autonomous Role upgrade')
-                await member.remove_roles(from_role, reason='Autonomous Role upgrade')
-                log.info(f'Member: {member.name} role has switched from: {from_role.name} to· {to_role.name}')
-                await guild.get_channel(ANNOUNCEMENT_CHANNEL_ID).\
-                    send(role_upgrade_template.format(member.mention, from_role.name, to_role.name))
-
-        await switch_role(tier1to2, tier1_role, tier2_role)
-        await switch_role(tier2to3, tier2_role, tier3_role)
-
-        return await self.update_roles()
+        else:
+            log.info(f'Role upgrade has been checked on : {utc_today.strftime("%Y-%m-%d %H:%M:%S")}. '
+                     f'however no role upgrade has been found.')
 
 
 def setup(bot):

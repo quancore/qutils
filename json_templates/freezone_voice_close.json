@@ -1,0 +1,37 @@
+{
+  "settings":   {
+  "channelName": "freezone",
+  "channelType": "voice",
+  "permissionOverrides": [
+    {
+      "roleName": "@everyone",
+      "permissions": {
+        "view_channel": false,
+        "connect": false,
+        "speak": false,
+        "stream": false,
+        "mute_members": false,
+        "deafen_members": false,
+        "move_members": false,
+        "use_voice_activation": false,
+        "priority_speaker": false
+    }
+    },
+    {
+      "roleName": "Yönetim",
+      "permissions": {
+        "view_channel": false,
+        "connect": false,
+        "speak": false,
+        "stream": false,
+        "mute_members": false,
+        "deafen_members": false,
+        "move_members": false,
+        "use_voice_activation": false,
+        "priority_speaker": false
+                      }
+    }
+  ]
+  },
+  "_comment": "JSON file for closing freezone voice channel.This JSON file also example for format."
+}

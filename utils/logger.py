@@ -7,15 +7,21 @@ import logging
 import asyncio
 
 from config import LOGGING_CHANNEL_ID
-from discord import Color, Embed
+from discord import Colour, Embed
 from discord.ext import commands
+from discord.errors import HTTPException
+
+from utils.formats import CustomEmbed
+from libneko import FieldIsTooLong
+
 
 
 LEVEL_COLORS = {
-    logging.CRITICAL: Color.red(),
-    logging.ERROR: Color.red(),
-    logging.WARNING: Color.gold(),
-    logging.INFO: Color.blurple()
+    logging.CRITICAL: Colour.red().value,
+    logging.ERROR: Colour.red().value,
+    logging.WARNING: Colour.gold().value,
+    logging.INFO: Colour.blurple().value,
+    logging.DEBUG: Colour.dark_grey().value
 }
 
 
@@ -31,7 +37,7 @@ class DiscordHandler(logging.Handler):
 
     @staticmethod
     def _level_to_color(level_number: int):
-        return LEVEL_COLORS.get(level_number)
+        return LEVEL_COLORS.get(level_number, Colour.orange().value)
 
     def emit(self, record):
         if not self.client.loop.is_running():
@@ -40,21 +46,29 @@ class DiscordHandler(logging.Handler):
 
         # Create an embed with a title like "Info" or "Error" and a color
         # relating to the level of the log message
-        embed = Embed(title=record.levelname.title(), color=self._level_to_color(record.levelno))
-
-        embed.timestamp = datetime.datetime.utcnow()
-
-        embed.add_field(name="Message", value=record.msg, inline=False)
-        embed.add_field(name="Function", value=f"`{record.funcName}`", inline=True)
-        embed.add_field(name="File name", value=f"`{record.filename}`", inline=True)
-        embed.add_field(name="Line number", value=record.lineno, inline=True)
+        embed_dict = {'title': record.levelname.title(), 'color': self._level_to_color(record.levelno),
+                      'fields': [
+                          {'name': "Message", 'value': record.msg, 'inline': False},
+                          {'name': "Function", 'value': f"`{record.funcName}`", 'inline': True},
+                          {'name': "File name", 'value': f"`{record.filename}`", 'inline': True},
+                          {'name': "Line number", 'value': record.lineno, 'inline': True},
+                      ],
+                      }
+        try:
+            e = CustomEmbed.from_dict(embed_dict, avatar_url=self.client.user.avatar_url)
+        except FieldIsTooLong as err:
+            return print(err)
 
         if "discord_info" in record.__dict__:
             for field, value in record.__dict__["discord_info"].items():
-                embed.add_field(name=field, value=value, inline=True)
+                try:
+                    e.add_field(name=field, value=value, inline=True)
+                except FieldIsTooLong as err:
+                    return print(err)
 
         if self.log_channel is None:
             self.log_channel = self.client.get_channel(LOGGING_CHANNEL_ID)
 
         # Create a task in the event loop to send the logging embed
-        asyncio.ensure_future(self.client.loop.create_task(self.log_channel.send(embed=embed)))
+        if self.log_channel is not None and hasattr(self.client, 'loop'):
+            asyncio.ensure_future(self.client.loop.create_task(self.log_channel.send(embed=e)))

@@ -1,0 +1,36 @@
+{
+    "name": "confessionservers",
+    "__meta__": "cogs.confession.ConfessionServers",
+    "columns": [
+        {
+            "column_type": {
+                "big": true,
+                "small": false,
+                "auto_increment": false,
+                "__meta__": "utils.db.Integer"
+            },
+            "index": false,
+            "primary_key": true,
+            "nullable": true,
+            "default": null,
+            "unique": false,
+            "name": "guild_id",
+            "index_name": null
+        },
+        {
+            "column_type": {
+                "big": true,
+                "small": false,
+                "auto_increment": false,
+                "__meta__": "utils.db.Integer"
+            },
+            "index": false,
+            "primary_key": false,
+            "nullable": false,
+            "default": null,
+            "unique": false,
+            "name": "channel_id",
+            "index_name": null
+        }
+    ]
+}

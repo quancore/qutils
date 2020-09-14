@@ -1,0 +1,37 @@
+{
+  "settings": {
+  "channelName": "freezone",
+  "channelType": "text",
+  "permissionOverrides": [
+    {
+      "roleName": "@everyone",
+      "permissions": {
+      "read_messages": true,
+      "send_messages": true,
+      "send_tts_messages": true,
+      "embed_links": true,
+      "attach_files": true,
+      "read_message_history": true,
+      "use_external_emojis": true,
+        "add_reactions": true
+    }
+    },
+    {
+      "roleName": "Yönetim",
+      "permissions": {
+      "read_messages": true,
+      "send_messages": true,
+      "send_tts_messages": true,
+        "manage_messages": true,
+      "embed_links": true,
+      "attach_files": true,
+      "read_message_history": true,
+        "mention_everyone": true,
+      "use_external_emojis": true,
+        "add_reactions": true
+                      }
+    }
+  ]
+  },
+  "_comment": "JSON file for opening freezone text channel.This JSON file also example for format."
+}

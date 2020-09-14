@@ -1,0 +1,91 @@
+{
+    "name": "bannedusers",
+    "__meta__": "cogs.confession.BannedUsers",
+    "columns": [
+        {
+            "column_type": {
+                "length": null,
+                "fixed": false,
+                "__meta__": "utils.db.String"
+            },
+            "index": false,
+            "primary_key": true,
+            "nullable": true,
+            "default": null,
+            "unique": false,
+            "name": "user_hash_id",
+            "index_name": null
+        },
+        {
+            "column_type": {
+                "big": true,
+                "small": false,
+                "auto_increment": false,
+                "__meta__": "utils.db.Integer"
+            },
+            "index": false,
+            "primary_key": true,
+            "nullable": true,
+            "default": null,
+            "unique": false,
+            "name": "guild_id",
+            "index_name": null
+        },
+        {
+            "column_type": {
+                "big": true,
+                "small": false,
+                "auto_increment": false,
+                "__meta__": "utils.db.Integer"
+            },
+            "index": false,
+            "primary_key": false,
+            "nullable": false,
+            "default": null,
+            "unique": false,
+            "name": "channel_id",
+            "index_name": null
+        },
+        {
+            "column_type": {
+                "length": null,
+                "fixed": false,
+                "__meta__": "utils.db.String"
+            },
+            "index": false,
+            "primary_key": false,
+            "nullable": false,
+            "default": null,
+            "unique": false,
+            "name": "confession_ban_code",
+            "index_name": null
+        },
+        {
+            "column_type": {
+                "timezone": false,
+                "__meta__": "utils.db.Datetime"
+            },
+            "index": false,
+            "primary_key": false,
+            "nullable": false,
+            "default": null,
+            "unique": false,
+            "name": "timestamp",
+            "index_name": null
+        },
+        {
+            "column_type": {
+                "length": null,
+                "fixed": false,
+                "__meta__": "utils.db.String"
+            },
+            "index": false,
+            "primary_key": false,
+            "nullable": true,
+            "default": "",
+            "unique": false,
+            "name": "reason",
+            "index_name": null
+        }
+    ]
+}

@@ -1,10 +1,13 @@
 import base64
 from os import environ
 from dotenv import load_dotenv
+from configparser import ConfigParser
 
 load_dotenv()
+config = ConfigParser()
 
 DEPLOY = bool(environ.get('DEPLOY'))
+CONFIG_FILE = str(environ.get('CONFIG_FILE', 'config.ini'))
 
 
 def get_env(name: str, fallback: str = "") -> str:
@@ -13,6 +16,34 @@ def get_env(name: str, fallback: str = "") -> str:
     if DEPLOY and variable is not None:
         variable = base64.b64decode(variable).decode()
     return variable or fallback
+
+
+class Config:
+    @staticmethod
+    def set_conf(config_path: str):
+        config.read(config_path)
+
+    @staticmethod
+    def get_conf_key(section, key, fallback=None, value_type='str'):
+        value = fallback
+        if config.has_section(section):
+            if value_type == 'str':
+                value = config.get(section, key, fallback=fallback)
+            elif value_type == 'bool':
+                value = config.getboolean(section, key, fallback=fallback)
+            elif value_type == 'int':
+                value = config.getint(section, key, fallback=fallback)
+            elif value_type == 'float':
+                value = config.getfloat(section, key, fallback=fallback)
+            else:
+                raise TypeError(f'Given type: {value_type} is not defined.')
+
+        return value
+
+    @staticmethod
+    def set_conf_key(section, key, value):
+        if config.has_section(section):
+            config.set(section, key, value)
 
 
 class PostgreSQL:
@@ -31,20 +62,28 @@ class PostgreSQL:
         return f"postgres://{cls.PGUSER}:{cls.PGPASSWORD}@{cls.PGHOST}:{cls.PGPORT}/{cls.PGDATABASE}"
 
 
+# read config file
+Config.set_conf(CONFIG_FILE)
+
 BOT_TOKEN = get_env("BOT_TOKEN")
 CLIENT_ID = get_env("CLIENT_ID")
 SENTRY_URL = get_env("SENTRY_URL")
 
-# guild and channel settings
-GUILD_ID = int(environ.get("LOGGING_CHANNEL_ID", "648262260724203523"))
-LOGGING_CHANNEL_ID = int(environ.get("LOGGING_CHANNEL_ID", "648867664026009621"))
-ANNOUNCEMENT_CHANNEL_ID = int(environ.get("ANNOUNCEMENT_CHANNEL_ID", "653301549979795467"))
+# ***** guild and channel settings *******
+GUILD_ID = int(environ.get("GUILD_ID", Config.get_conf_key('channels', "GUILD_ID", "648262260724203523")))
+LOGGING_CHANNEL_ID = int(
+    environ.get("LOGGING_CHANNEL_ID", Config.get_conf_key('channels', "LOGGING_CHANNEL_ID", "648867664026009621")))
+ANNOUNCEMENT_CHANNEL_ID = int(
+    environ.get("ANNOUNCEMENT_CHANNEL_ID", Config.get_conf_key('channels', "ANNOUNCEMENT_CHANNEL_ID", "653301549979795467")))
+CONFESSION_CHANNEL_ID = int(
+    environ.get("CONFESSION_CHANNEL_ID", Config.get_conf_key('channels', "CONFESSION_CHANNEL_ID", "750452002248458330")))
+RECEPTION_CHANNEL_ID = int(
+    environ.get("RECEPTION_CHANNEL_ID", Config.get_conf_key('channels', "RECEPTION_CHANNEL_ID", "648623592828960768")))
 
+# ****** people **********
+OWNER_ID = int(environ.get("OWNER_ID", Config.get_conf_key('members', "OWNER_ID", "647577161200566289")))
 
 # ##### admin cog constants #######
-# ****** people **********
-OWNER_ID = '647577161200566289'
-
 # ***** roles ***********
 # role given for newcomers who not approved and waiting in a reception
 STRANGER_ROLE_NAME = 'Yabancılar'
@@ -68,16 +107,30 @@ STATS_ROLES = (TIER5, TIER4, TIER3, TIER2, TIER1, BOT_ROLE_NAME, STRANGER_ROLE_N
 VALID_STATS_ROLES = (TIER5, TIER4, TIER3, TIER2, TIER1)
 # roles for using user command (getting number of days to upgrade next role)
 ROLE_HIERARCHY = {TIER1: (TIER2, 60), TIER2: (TIER3, 240)}
-
-
 # ***** constants ********
 # minimum number of needed days removing inactive members after last prune
-activity_schedule_gap = '5min'
-# minimum number of days passed since a member joined to be effected by activity rule
+activity_schedule_gap = '5d'
+# minimum number of days passed since a member joined to be effected by activity removal rule
 activity_min_day = 7
 # text template for activity announcement
 activity_template = '{} tarihine kadar aktiflik sartini saglamaz veya yonetime mazeret ' \
                     'bildirmez ise cikartilacak uye listesi'
+# text template for activity announcement in pm channel
+activity_pm_template = 'Bu mesajı sana {} dan gönderiyorum.' \
+                       'Artık seni aramızda sık sık göremiyoruz ve bu bizi çok üzüyor 😔 . ' \
+                       'Aktiflik rolüne sahip olmadığın için seni atılacak üye listesine ekledik. ' \
+                       'Eğer {} tarihine kadar aktif rolünü kazanmazsan veya yönetime eksikliğinin ' \
+                       'mazeretini bildirmez isen maalesef seni yukarıdaki tarihte kanaldan atmak zorunda kalacağım 😢 .'
+# text template to send removed members to rejoin if they would like to
+removed_member_pm_template = 'Tekrar merhaba! Aktiflik rolünü daha önce belirtilen tarihe kadar ' \
+                             'kazanamadığın için {} sunucusundan çıkartıldın. Ama bu herşeyin sonu demek değil. ' \
+                             'Senin için yeni bir davet oluşturdum, işte burda: {} \n Bu davet linki ile istersen ' \
+                             'bize tekrar katılabilirsin, unutma bu davet sadece {} gün geçerli olacak. ' \
+                             'Davete tıklayıp yeniden kanala katıldığında bu sefer aktif olacağına ' \
+                             'dair bana söz vermiş olacaksın, unutma!!!'
+# number of days the invite link will be valid which sent via pm to removed users
+rejoin_invite_timeout_days = 5
+
 # role upgrade template
 role_upgrade_template = 'Tebrikler {}! {} rolunden {} rolune yukseldin!'
 # number of days for checking role upgrade
@@ -85,80 +138,23 @@ role_upgrade_gap = '1d'
 # minimum number of days for role transitions
 TIER1toTIER2 = 60
 TIER2toTIER3 = 240
-
-# Fun constants
-# QUOTES_CHANNEL_ID = int(environ.get("QUOTES_CHANNEL_ID", "463657120441696256"))
-# QUOTES_BOT_ID = 292953664492929025
-# WELCOME_BOT_ID = 155149108183695360
-
-# Misc roles
-# HUNDRED_PERCENT_ROLE_ID = 640481360766697482
-# TRUE_HUNDRED_PERCENT_ROLE_ID = 640481628292120576
-
-# # Lists for administration
-# STAFF_ROLE_ID = 450063890362138624
-# FAKE_ROLE_ID = 533826912712130580
-# STATIC_NICKNAME_ROLE_ID = 567259415393075210
-# CD_BOT_ROLE_ID = 543768819844251658
-# ADMIN_MENTOR_ROLE_ID = 502238208747110411
-# ROOT_ROLE_ID = int(environ.get("ROOT_MEMBERS_ID", "450113490590629888"))
-# SUDO_ROLE_ID = int(environ.get("SUDO_MEMBERS_ID", "450113682542952451"))
-# ADMIN_ROLES = ("Root", "Sudo")
-# BANNED_DOMAINS = ["discord.gg"]
-
-
-# class Roles:
-#
-#     class Elite:
-#         MAIN = int(environ.get("ELITE_MEMBERS_ID", "580387468336037888"))
-#
-#         class London:
-#             YOUNGER = int(environ.get("LDN_Y_MEMBERS_ID", "580387877385404428"))
-#             OLDER = int(environ.get("LDN_O_MEMBERS_ID", "580387897644023811"))
-#
-#         class Birmingham:
-#             YOUNGER = int(environ.get("BRM_Y_MEMBERS_ID", "580387895299276830"))
-#             OLDER = int(environ.get("BRM_O_MEMBERS_ID", "580387899833581572"))
-#
-#         class Lancaster:
-#             YOUNGER = int(environ.get("LAN_Y_MEMBERS_ID", "580387892853997578"))
-#             OLDER = int(environ.get("LAN_O_MEMBERS_ID", "580387898973618176"))
-#
-#     class Exchange:
-#         SHORTLIST = int(environ.get("EXCH_S_MEMBERS_ID", "582894164597932034"))
-#         CONFIRMED = int(environ.get("EXCH_C_MEMBERS_ID", "585150522336608256"))
-#
-#
-# # Cyber Constants
-# HINTS_LIMIT = 8
-# CYBERDISC_ICON_URL = "https://pbs.twimg.com/profile_images/921313066515615745/fLEl2Gfa_400x400.jpg"
-# ELITECOUNT_ENABLED = False
-#
-# # Readme command constants
-# README_SEND_ALIASES = ["create", "push", "generate", "send", "make", "build", "upload"]
-# README_RECV_ALIASES = ["fetch", "get", "pull", "download", "retrieve", "dm", "dl"]
-#
-# END_README_MESSAGE = (
-#     "**Can't see any of the above?**\nIf you can't see any of the rich embeds above, try the"
-#     " following: `Settings -> Text & Images -> Link Preview (Show website preview info from"
-#     " links pasted into that chat)  -> ON`"
-# )
-#
-# BASE_ALIASES = {
-#     "Headquarters": ["headquarters", "main", "hq", "h"],
-#     "Moonbase": ["moonbase", "python", "moon", "m"],
-#     "Forensics": ["forensics", "f"],
-#     "Volcano": ["volcano", "v", "volc"]
-# }
-#
-# # Admin Constants
-# PLACEHOLDER_NICKNAME = "Valued server member"
-# NICKNAME_PATTERNS = [
-#     r'(discord\.gg/)',  # invite links
-#     r'(nigg|cunt|ligma|fag|nazi|hitler|\bpaki\b)',  # banned words
-#     r'(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)'  # hyperlinks
-# ]
-
+# directory for json permission templates
+base_json_dir = 'json_templates'
+##### Confession cog #########
+message_timeout = Config.get_conf_key('confession', "message_timeout", 600, value_type='int')
+##############################
+##### Automation cog #########
+# number of days the inactive members will be announced in announcement channel
+num_announce_days = Config.get_conf_key('announcement', "num_announce_days", 2, value_type='int')
+announcement_template = 'Maalesef aşağıda listelenen üyelerimiz kanalın aktiflik şartını sağlayamadıkları ' \
+                        'için **{}** rolüne sahip değiller. **{}** rolüne sahip olmayan bu üyeler olası bir aktif ' \
+                        'olmayan üyeleri çıkarma işleminde kanaldan **ATILACAKLARDIR!!!** Bu üyelerden ricamız ' \
+                        'lütfen en kısa sürede kanalda yeterince aktif olmaya başlamalarıdır.\n' \
+                        '** *Aşağıda mazeretlerini bildiren üyeler listelenmiştir, ' \
+                        'lütfen bu üyeler duyuruyu dikkate almasın. ' \
+                        'Bu üyeler haricinde eğer geçici bir mazeretiniz varsa lütfen yönetime bildirin.* ** \n' \
+                        '***Aktiflik şartı: https://sites.google.com/view/nightzone/ana-sayfa#h.p_6i1CL4wFpmQV***\n'
+##############################
 # Emoji Alphabet
 EMOJI_LETTERS = [
     "\U0001f1e6\U0001f170\U0001F359",  # A

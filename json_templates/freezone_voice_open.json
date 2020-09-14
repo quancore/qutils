@@ -1,0 +1,34 @@
+{
+  "settings":   {
+  "channelName": "freezone",
+  "channelType": "voice",
+  "permissionOverrides": [
+    {
+      "roleName": "@everyone",
+      "permissions": {
+        "view_channel": true,
+        "connect": true,
+        "speak": true,
+        "stream": true,
+        "use_voice_activation": true,
+        "priority_speaker": true
+    }
+    },
+    {
+      "roleName": "Yönetim",
+      "permissions": {
+        "view_channel": true,
+        "connect": true,
+        "speak": true,
+        "stream": true,
+        "mute_members": true,
+        "deafen_members": true,
+        "move_members": true,
+        "use_voice_activation": true,
+        "priority_speaker": true
+                      }
+    }
+  ]
+  },
+  "_comment": "JSON file for opening freezone voice channel.This JSON file also example for format."
+}
