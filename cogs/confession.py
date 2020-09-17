@@ -5,6 +5,7 @@ import asyncpg
 import hashlib
 import json
 import textwrap
+import datetime
 
 from PIL import Image
 from io import BytesIO
@@ -18,7 +19,7 @@ import typing
 from discord import File, TextChannel, Guild, InvalidArgument, Forbidden, HTTPException, RawMessageDeleteEvent, RawBulkMessageDeleteEvent
 
 import logging
-from config import CONFESSION_CHANNEL_ID, GUILD_ID, message_timeout
+from config import ADMIN_CHANNEL_ID, CONFESSION_CHANNEL_ID, GUILD_ID, message_timeout, warn_limit, command_cooldown
 from utils import db, helpers
 from utils.formats import CustomEmbed
 from libneko import pag
@@ -40,6 +41,8 @@ class Confessions(db.Table):
     image_url = db.Column(db.String, default='')
     attachment_urls = db.Column(db.JSON, default="'{}'::jsonb")
     user_banned = db.Column(db.Boolean, default=False)
+    # whether the confession has been deleted
+    is_deleted = db.Column(db.Boolean, default=False)
 
 
 class BannedUsers(db.Table):
@@ -51,9 +54,31 @@ class BannedUsers(db.Table):
     reason = db.Column(db.String, default='')
 
 
+class Warns(db.Table):
+    confession_ban_code = db.Column(db.String, primary_key=True)
+    confession_id = db.Column(db.Integer(big=True), unique=True)
+    user_hash_id = db.Column(db.String, nullable=False)
+    guild_id = db.Column(db.Integer(big=True), nullable=False)
+    channel_id = db.Column(db.Integer(big=True), nullable=False)
+    timestamp = db.Column(db.Datetime, nullable=False)
+    reason = db.Column(db.String, default='')
+
+
 class ConfessionServers(db.Table):
     guild_id = db.Column(db.Integer(big=True), primary_key=True)
     channel_id = db.Column(db.Integer(big=True), nullable=False)
+
+
+class Irritations(db.Table):
+    confession_id = db.Column(db.Integer(big=True), primary_key=True)
+    # unique ban code for the confession
+    confession_ban_code = db.Column(db.String, nullable=False, unique=True)
+    # the member hash code irritated by this confession
+    user_hash_id = db.Column(db.String, nullable=False)
+    guild_id = db.Column(db.Integer(big=True), nullable=False)
+    channel_id = db.Column(db.Integer(big=True), nullable=False)
+    timestamp = db.Column(db.Datetime, nullable=False)
+    reason = db.Column(db.String, default='')
 
 
 class Confession(commands.Cog):
@@ -92,6 +117,10 @@ class Confession(commands.Cog):
 
         elif isinstance(error, commands.UserInputError):
             err_msg = f"User give wrong input:  {error}."
+
+        elif isinstance(error, commands.CommandOnCooldown):
+            err_msg = 'This command is rate-limited, meaning you cannot use the command too frequently.\n' \
+                       'Please try again in {:.2f}s'.format(error.retry_after)
 
         if err_msg is not None:
             log.exception(err_msg)
@@ -135,27 +164,32 @@ class Confession(commands.Cog):
     @commands.Cog.listener('on_raw_message_delete')
     async def confession_delete_listener(self, payload: RawMessageDeleteEvent):
         """ Delete a confession log if a confession has been deleted. """
-        query = f"""DELETE FROM confessions
-                    WHERE confession_id = $1
-                    AND guild_id = $2
-                    AND channel_id = $3
-                        """
+        # query = f"""DELETE FROM confessions
+        #             WHERE confession_id = $1
+        #             AND guild_id = $2
+        #             AND channel_id = $3
+        #                 """
+        #
+        # res = await self.bot.pool.execute(query, payload.message_id, payload.guild_id, payload.channel_id)
+        # num_deleted = helpers.representsInt(res.split(' ')[-1])
+        # if num_deleted > 0:
+        #     log.info(f'{num_deleted} confession record have been deleted because of confession deletion.')
 
-        res = await self.bot.pool.execute(query, payload.message_id, payload.guild_id, payload.channel_id)
-        num_deleted = helpers.representsInt(res.split(' ')[-1])
-        if num_deleted > 0:
-            log.info(f'{num_deleted} confession record have been deleted because of confession deletion.')
+        # No remove from DB but set the deleted flag
+        res = await self._set_deletion_status(payload.guild_id, payload.message_id, deletion_status=True)
+        if res > 0:
+            log.info(f'{res} confession record have been set as deleted.')
 
     @commands.Cog.listener('on_raw_bulk_message_delete')
     async def confession_bulk_delete_listener(self, payload: RawBulkMessageDeleteEvent):
         """ Delete bulk confessions log if confessions have been deleted. """
-        query = f"""DELETE FROM confessions
-                    WHERE confession_id = $1
-                    AND guild_id = $2
-                    AND channel_id = $3
-                 """
-        query_params = [(message_id, payload.guild_id, payload.channel_id) for message_id in payload.message_ids]
-        await self.bot.pool.executemany(query, query_params)
+        # query = f"""DELETE FROM confessions
+        #             WHERE confession_id = $1
+        #             AND guild_id = $2
+        #             AND channel_id = $3
+        #          """
+        for message_id in payload.message_ids:
+            await self._set_deletion_status(payload.guild_id, message_id, deletion_status=True)
     # *********************************
 
     # ********* Server and channel settings related ******
@@ -283,11 +317,13 @@ class Confession(commands.Cog):
     async def _create_embed(self, record, is_detailed=True):
         """ Create original embed from a database record.
             If detailed True, a detailed embed has been created, which is useful for feedback to user etc."""
-        attachments = json.loads(record['attachment_urls'])
         embed_dict = {'title': 'Anonymous confession',
-                      'description': record['confession_text'],
                       'footer': {'text': f"Ban code for user: {record['confession_ban_code']}"},
                       }
+        body_text = record.get('confession_text')
+        if body_text:
+            embed_dict['description'] = body_text
+
         if is_detailed:
             guild, channel = await helpers.get_guild_by_id(self.bot, record['guild_id']), None
             if guild:
@@ -297,17 +333,30 @@ class Confession(commands.Cog):
                                     {'name': 'Guild ID', 'value': guild.name if guild else record['guild_id'], 'inline': True},
                                     {'name': 'Channel ID', 'value': channel.mention if channel else record['channel_id'], 'inline': True},
                                     {'name': 'Date of confession', 'value': record['timestamp'].strftime('%Y-%m-%d'),
-                                     'inline': True},
-                                    {'name': 'User banned?', 'value': 'Yes' if record['user_banned'] else 'No',
                                      'inline': True}
                                     ]
+            if 'user_banned' in record:
+                val = {'name': 'User banned?', 'value': 'Yes' if record['user_banned'] else 'No', 'inline': True}
+                embed_dict['fields'].append(val)
+
+            if 'is_deleted' in record:
+                val = {'name': 'Is deleted?', 'value': 'Yes' if record['is_deleted'] else 'No', 'inline': True}
+                embed_dict['fields'].append(val)
+
+            if 'reason' in record:
+                val = {'name': 'Reason:', 'value': record['reason'], 'inline': False}
+                embed_dict['fields'].append(val)
+
         e = CustomEmbed.from_dict(embed_dict, avatar_url=self.bot.user.avatar_url)
         if record['image_url'] != '':
             e.set_image(url=record['image_url'])
 
-        if attachments:
-            attachment_str = '\n'.join(attachments)
-            e.add_field(name='**Other attachments**', value=attachment_str, inline=False)
+        json_attachments = record.get('attachment_urls')
+        if json_attachments:
+            attachments = json.loads(record['attachment_urls'])
+            if attachments:
+                attachment_str = '\n'.join(attachments)
+                e.add_field(name='**Other attachments**', value=attachment_str, inline=False)
 
         return e
 
@@ -350,9 +399,10 @@ class Confession(commands.Cog):
 
         return rows[0]
 
-    async def _delete_with_ban_code(self, ctx, guild_id, ban_code):
-        """ Delete a confession with ban code."""
-        query = f"""DELETE FROM confessions
+    async def _fetch_warn_with_ban_code(self, ctx, guild_id, ban_code):
+        """ Fetch user warns with confession warn code """
+        query = f"""SELECT *
+                    FROM warns
                     WHERE confession_ban_code = $1
                     AND guild_id = $2
                 """
@@ -361,10 +411,23 @@ class Confession(commands.Cog):
         if not self._check_ban_code(ban_code):
             raise commands.UserInputError(f"Given ban code is not valid: **{ban_code}**")
 
-        await ctx.db.execute(query, ban_code, guild_id)
+        return await ctx.db.fetch(query, ban_code, guild_id)
+
+    # async def _delete_with_ban_code(self, ctx, guild_id, ban_code):
+    #     """ Delete a confession with ban code."""
+    #     query = f"""DELETE FROM confessions
+    #                 WHERE confession_ban_code = $1
+    #                 AND guild_id = $2
+    #             """
+    #
+    #     # Make sure it's valid ban code
+    #     if not self._check_ban_code(ban_code):
+    #         raise commands.UserInputError(f"Given ban code is not valid: **{ban_code}**")
+    #
+    #     await ctx.db.execute(query, ban_code, guild_id)
 
     async def _fetch_with_user_code(self, ctx, guild_id, user_hash_code):
-        """ Fetch confession with ban code """
+        """ Fetch banned user with ban code """
         query = f"""SELECT *
                     FROM bannedusers
                     WHERE user_hash_id = $1 AND
@@ -374,23 +437,35 @@ class Confession(commands.Cog):
 
         return row
 
-    async def _set_ban_status(self, ctx, guild_id: int, ban_code: str, ban_status: bool = False):
+    async def _set_ban_status(self, ctx, guild_id: int, user_hash_id: str, ban_status: bool = False):
         """ Set a user ban status for a confession."""
         update_query = """ UPDATE confessions
                        SET user_banned = $1
-                       WHERE confession_ban_code = $2
+                       WHERE user_hash_id = $2
                        AND guild_id = $3
                        """
-        await ctx.db.execute(update_query, ban_status, ban_code, guild_id)
+        await ctx.db.execute(update_query, ban_status, user_hash_id, guild_id)
 
-    async def _set_channel_id(self, ctx, guild_id: int, ban_code: str, new_channel_id: int):
-        """ Set a new text channel if for a confession."""
+    async def _set_deletion_status(self, guild_id: int, confession_id: int, deletion_status: bool = False):
+        """ Set whether a confession has been deleted"""
         update_query = """ UPDATE confessions
-                       SET channel_id = $1
-                       WHERE confession_ban_code = $2
+                       SET is_deleted = $1
+                       WHERE confession_id = $2
                        AND guild_id = $3
                        """
-        await ctx.db.execute(update_query, new_channel_id, ban_code, guild_id)
+        res = await self.bot.pool.execute(update_query, deletion_status, confession_id, guild_id)
+        num_updated = helpers.representsInt(res.split(' ')[-1])
+        return num_updated
+
+    async def _set_message_info(self, ctx, guild_id: int, ban_code: str,
+                                new_confession_id: int, new_channel_id: int):
+        """ Update message and channel id for a confession"""
+        update_query = """ UPDATE confessions
+                       SET confession_id = $1, channel_id = $2
+                       WHERE confession_ban_code = $3
+                       AND guild_id = $4
+                       """
+        await ctx.db.execute(update_query, new_confession_id, new_channel_id, ban_code, guild_id)
 # ******************************************
 
 # ********** commands **********************
@@ -406,6 +481,9 @@ class Confession(commands.Cog):
     @commands.dm_only()
     async def create(self, ctx):
         """ Create a confession for given server """
+
+        await self.bot.wait_until_ready()
+
         author = ctx.author
         channel = ctx.message.channel
         # Handle bots (me lol)
@@ -597,10 +675,12 @@ class Confession(commands.Cog):
                            f'if you have required privileges.')
 
     @confess.command(name='fetchall', help='Fetch all the confession logs from DB for this guild',
-                     usage='', aliases=['fa'])
+                     usage='<id_deleted>\n\n'
+                           'is_deleted: bool, default False - whether list only deleted records',
+                     aliases=['fa'])
     @commands.has_permissions(manage_messages=True, ban_members=True)
     @commands.guild_only()
-    async def fetchall(self, ctx):
+    async def fetchall(self, ctx, is_deleted: bool = False):
         query = """SELECT confession_id,
                     confession_ban_code,
                     user_hash_id,
@@ -610,21 +690,23 @@ class Confession(commands.Cog):
                     confession_text,
                     image_url,
                     attachment_urls,
-                    user_banned
+                    user_banned,
+                    is_deleted
                     FROM confessions
-                    WHERE guild_id = $1"""
+                    WHERE guild_id = $1
+                    AND is_deleted=$2"""
 
         guild = ctx.guild
-        records = await ctx.db.fetch(query, guild.id)
+        records = await ctx.db.fetch(query, guild.id, is_deleted)
         if len(records) == 0:
             return await ctx.send('No results found...')
 
         nav = pag.EmbedNavigatorFactory(max_lines=20)
         nav.add_line('**__Confession logs__**')
         row_num_to_id = {}
-        for index, (_id, ban_code, _, _, _, date, text, _, _, ban_status) in enumerate(records):
+        for index, (_id, ban_code, _, _, _, date, text, _, _, ban_status, is_deleted) in enumerate(records):
             shorten = textwrap.shorten(text, width=150)
-            line = f'**{index+1}) ID**: {_id} | **BCode**: {ban_code} | ' \
+            line = f'**{index+1}) ID**: {_id} | **BCode**: {ban_code} | **Deleted?**: {is_deleted} | ' \
                    f'**{date}** -> {shorten}'
             row_num_to_id[index+1] = _id
             nav.add_line(line)
@@ -642,8 +724,9 @@ class Confession(commands.Cog):
             return await ctx.send('Command has been cancelled.')
 
         record = next((record for record in records if record['confession_id'] == choice), None)
-        e = await self._create_embed(record, is_detailed=False)
-        await ctx.send(embed=e.to_embed())
+        url = f'URL: <https://discordapp.com/channels/{guild.id}/{record["channel_id"]}/{record["confession_id"]}>'
+        e = await self._create_embed(record, is_detailed=True)
+        await ctx.send(url, embed=e.to_embed())
 
     @confess.command(name='fetch', help='Fetch the confessions belongs to a member from DB',
                      usage='', aliases=['f'])
@@ -660,7 +743,8 @@ class Confession(commands.Cog):
                     attachment_urls,
                     user_banned
                     FROM confessions
-                    WHERE user_hash_id=$1"""
+                    WHERE user_hash_id=$1 
+                    AND is_deleted=false"""
 
         author = ctx.author
         channel = ctx.channel
@@ -723,7 +807,8 @@ class Confession(commands.Cog):
 
         record = next((record for record in records if record['confession_id'] == choice), None)
         e = await self._create_embed(record, is_detailed=False)
-        await ctx.send(embed=e.to_embed())
+        url = f'URL: <https://discordapp.com/channels/{guild.id}/{record["channel_id"]}/{record["confession_id"]}>'
+        await ctx.send(url, embed=e.to_embed())
 
     @confess.command(name='delete', help='Delete a confession',
                      usage='', aliases=['remove', 'd'])
@@ -740,7 +825,8 @@ class Confession(commands.Cog):
                     attachment_urls,
                     user_banned
                     FROM confessions
-                    WHERE user_hash_id=$1"""
+                    WHERE user_hash_id=$1
+                    AND is_deleted=false """
 
         author = ctx.author
         channel = ctx.channel
@@ -812,13 +898,17 @@ class Confession(commands.Cog):
 
         record = next((record for record in records if record['confession_id'] == choice), None)
         # Remove the confession from DB
-        await self._delete_with_ban_code(ctx, guild.id, record['confession_ban_code'])
+        # await self._delete_with_ban_code(ctx, guild.id, record['confession_ban_code'])
+        # # No remove from DB but set the deleted flag
+        # await self._set_deletion_status(guild.id, record['confession_id'], deletion_status=True)
         # Remove the message from channel
         channel = await helpers.get_channel_by_id(self.bot, guild, record['channel_id'])
         if channel:
             try:
                 msg = await channel.fetch_message(record['confession_id'])
             except NotFound as err:
+                # Manually set the deletion status
+                await self._set_deletion_status(guild.id, record['confession_id'], deletion_status=True)
                 log.exception(f"Message not found with id: "
                               f"{record['confession_id']} to delete.")
             else:
@@ -828,22 +918,18 @@ class Confession(commands.Cog):
         e = await self._create_embed(record, is_detailed=False)
         await ctx.send('The following confession has been deleted.', embed=e.to_embed())
 
-    @confess.command(name='ban', help='Ban a member to send confession',
-                     usage='<ban_code> <reason> \n Use " " to define reason longer than one word',
-                     aliases=['b'])
-    @commands.has_permissions(manage_messages=True, ban_members=True)
-    @commands.guild_only()
-    async def ban(self, ctx, ban_code, reason):
-        """Bans a user from being able to send in any more confessions to your server"""
+    async def _ban(self, ctx, ban_code, reason, record=None):
+        """ Ban method """
         guild = ctx.guild
 
         # Fetch record with given ban code
-        record = await self._fetch_with_ban_code(ctx, guild.id, ban_code)
+        if record is None:
+            record = await self._fetch_with_ban_code(ctx, guild.id, ban_code)
 
         # Check if the user of the confession has already banned
         if not record['user_banned']:
             # set ban status of a confession in DB
-            await self._set_ban_status(ctx, guild.id, ban_code, ban_status=True)
+            await self._set_ban_status(ctx, guild.id, record['user_hash_id'], ban_status=True)
             record = dict(record)
             record['user_banned'] = True
 
@@ -862,7 +948,9 @@ class Confession(commands.Cog):
             if channel:
                 try:
                     msg = await channel.fetch_message(record['confession_id'])
-                except NotFound as err:
+                except Exception as err:
+                    # Manually set the deletion status
+                    await self._set_deletion_status(guild.id, record['confession_id'], deletion_status=True)
                     log.exception(f"Message not found with **ID: "
                                   f"{record['confession_id']}** to delete "
                                   f"after **ban code: {ban_code}**. {err}")
@@ -874,7 +962,7 @@ class Confession(commands.Cog):
             ban_member = self._find_member_by_hash_code(guild, record['user_hash_id'])
             if ban_member:
                 # Tell people about it
-                e = await self._create_embed(record)
+                e = await self._create_embed(record, is_detailed=False)
                 try:
                     await ban_member.send(f"You've been banned from posting confessions on "
                                           f"the server **{guild.name}**. \n"
@@ -892,6 +980,109 @@ class Confession(commands.Cog):
         else:
             return await ctx.send("Given user has already been banned. "
                                   "If you have permissions, you can check banned users via **fetchban** command.")
+
+    @confess.command(name='ban', help='Ban a member to send confession',
+                     usage='<ban_code> <reason> \n Use " " to define reason longer than one word',
+                     aliases=['b'])
+    @commands.has_permissions(manage_messages=True, ban_members=True)
+    @commands.guild_only()
+    async def ban(self, ctx, ban_code, reason):
+        """Bans a user from being able to send in any more confessions to your server"""
+        return await self._ban(ctx, ban_code, reason)
+
+    @confess.command(name='warn', help='Warn a user for a confession',
+                     usage='<ban_code> <reason> \n Use " " to define reason longer than one word',
+                     aliases=['w'])
+    @commands.has_permissions(manage_messages=True, ban_members=True)
+    @commands.guild_only()
+    async def warn(self, ctx, ban_code, reason):
+        """Warn a user for a confession"""
+        guild = ctx.guild
+
+        # Fetch record and warn record  with given ban code
+        record = await self._fetch_with_ban_code(ctx, guild.id, ban_code)
+        warn_records = await self._fetch_user_warns(guild.id, record['user_hash_id'])
+
+        if warn_records:
+            is_already_warned = any([True for record in warn_records if ban_code == record['confession_ban_code']])
+
+            if is_already_warned:
+                return await ctx.send('The member has already been warned for this confession')
+
+            if len(warn_records) == warn_limit:
+                return await ctx.send(f'The member has already reached warn limits: {warn_limit}')
+
+        if len(record) == 0:
+            return await ctx.send('There is no confession for this server with given ban code')
+
+        if record['user_banned']:
+            return await ctx.send('The user has already banned from confession server')
+
+        # get number of remaining warning for this user and check if it get banned
+        num_warned = len(warn_records) + 1
+        num_remaining = warn_limit - num_warned
+        get_banned = False if num_remaining > 0 else True
+        if get_banned:
+            confirm = await ctx.prompt(f'The user has been reached warn limit: {warn_limit}\n '
+                                       f'If you give this warning, he/she will be **BANNED!!** from sending confession.'
+                                       f'Are you sure you want to warn?')
+            if not confirm:
+                return await ctx.send('Operation has been cancelled')
+
+        # Add user to warned user for this guild
+        query = 'INSERT INTO warns VALUES ($1, $2, $3, $4, $5, $6, $7)'
+        params = (ban_code, record['confession_id'],
+                  record['user_hash_id'], guild.id,
+                  record['channel_id'], datetime.datetime.utcnow(), reason)
+        try:
+            await ctx.db.execute(query, *params)
+        except asyncpg.UniqueViolationError as err:
+            log.exception(err)
+
+        # Remove the original confession and tell the other people the user has been warned
+        e = await self._create_embed(record, is_detailed=False)
+        channel = await helpers.get_channel_by_id(self.bot, guild, record['channel_id'])
+        if channel:
+            if not get_banned:
+                try:
+                    msg = await channel.fetch_message(record['confession_id'])
+                except NotFound as err:
+                    # Manually set the deletion status
+                    await self._set_deletion_status(guild.id, record['confession_id'], deletion_status=True)
+                    log.exception(f"Message not found with **ID: "
+                                  f"{record['confession_id']}** to delete "
+                                  f"after **ban code: {ban_code}**. {err}")
+                else:
+                    if msg:
+                        await msg.delete()
+
+            try:
+                await channel.send('A member has been warned for the following confession.',
+                                   embed=e, delete_after=600)
+            except Exception as err:
+                log.exception(f'Member warning announcement cannot send in warning op: \n {err}')
+
+        # Find member with given user hash code if it is still in the guild
+        warn_member = self._find_member_by_hash_code(guild, record['user_hash_id'])
+        if warn_member:
+            try:
+                await warn_member.send(f"You've been warned from posting confessions on "
+                                       f"the server **{guild.name}**. \n"
+                                       f"**Warn: {num_warned}/{warn_limit}\n"
+                                       f"**Reason**: {reason} \n"
+                                       f"**Warned by**: {ctx.author.mention} \n"
+                                       f"Your identity is still a secret. Don't worry about it too much.\n"
+                                       f"Here is the confession caused to warn:",
+                                       embed=e)
+            except Exception as err:
+                log.exception(f'The user to send pm message in warn operation not found:\n {err}')
+
+        else:
+            await ctx.send("Given user has not been found to warn.")
+
+        if get_banned:
+            ban_reason = f'Banned after {warn_limit} warnings'
+            return await self._ban(ctx, ban_code, ban_reason)
 
     @confess.command(name='unban', help='Unban a user to send confession',
                      usage='<user_hash_code>', aliases=['ub'])
@@ -912,7 +1103,7 @@ class Confession(commands.Cog):
         await ctx.send(f"Member with **hash code: {user_hash_code}** has been unbanned for **{guild.name}**.")
 
         # unban in db
-        await self._set_ban_status(ctx, guild.id, res['confession_ban_code'])
+        await self._set_ban_status(ctx, guild.id, res['user_hash_id'])
 
         # send a pm message to unbanned user
         member = self._find_member_by_hash_code(guild, user_hash_code)
@@ -935,9 +1126,15 @@ class Confession(commands.Cog):
                     await confession_channel.send(f"I encountered the error `{e}` "
                                                   f"trying to send your deleted confession to confession channel:/")
                 else:
-                    # if we resend the confession, we should update the confession channel
+                    # Set the confession deletion status to False
+                    await self._set_deletion_status(guild.id, confession['confession_id'], deletion_status=False)
+                    # if we resend the confession, we should update the confession id and confession channel
                     # since current confession channel and DB record may differ
-                    await self._set_channel_id(ctx, guild.id, res['confession_ban_code'], confession_channel_id)
+                    await self._set_message_info(ctx, guild.id, res['confession_ban_code'], confessed_message.id,
+                                                 confession_channel_id)
+
+        # Last, remove all warnings for that user
+        await self._delete_user_warns(guild.id, res['user_hash_id'])
 
     @confess.command(name='fetchban', help='Fetch banned users from confession',
                      usage='', aliases=['fb'])
@@ -960,7 +1157,7 @@ class Confession(commands.Cog):
         nav = pag.EmbedNavigatorFactory(max_lines=20)
         nav.add_line('**__Banned Users__**')
         row_num_to_code = {}
-        for index, (_id, guild_id, confession_ban_code, date, reason) in records:
+        for index, (_id, guild_id, confession_ban_code, date, reason) in enumerate(records):
             line = f'**{index+1}) User Hash code**: {_id} | **Guild ID:** {guild_id}' \
                    f' **BCode**: {confession_ban_code} | **{date}** -> {reason}'
             row_num_to_code[index+1] = confession_ban_code
@@ -980,6 +1177,302 @@ class Confession(commands.Cog):
 
         ban_record = next((record for record in records if record['confession_ban_code'] == choice), None)
         record = await self._fetch_with_ban_code(ctx, guild.id, ban_record['confession_ban_code'])
+        e = await self._create_embed(record)
+        await ctx.send(embed=e.to_embed())
+
+    @confess.command(name='fetchwarn', help='Fetch warned users for confession',
+                     usage='', aliases=['fw'])
+    @commands.has_permissions(manage_messages=True, ban_members=True)
+    @commands.guild_only()
+    @commands.is_owner()
+    async def fetchwarn(self, ctx):
+        query = """SELECT confession_ban_code,
+                    confession_id,
+                    user_hash_id,
+                    guild_id,
+                    channel_id,
+                    timestamp,
+                    reason
+                    FROM warns
+                    WHERE guild_id = $1"""
+
+        guild = ctx.guild
+        records = await ctx.db.fetch(query, guild.id)
+        if len(records) == 0:
+            return await ctx.send('No results found...')
+
+        nav = pag.EmbedNavigatorFactory(max_lines=20)
+        nav.add_line('**__Warned Users__**')
+        row_num_to_code = {}
+        for index, (confession_ban_code, confession_id, _id, guild_id, _, date, reason) in enumerate(records):
+            line = f'**{index+1}) User Hash code**: {_id} | **Guild ID:** {guild_id}' \
+                   f' **BCode**: {confession_ban_code} | **{date}** -> {reason}'
+            row_num_to_code[index+1] = confession_ban_code
+            nav.add_line(line)
+            nav.add_line('**-----------------------------**')
+
+        nav.start(ctx=ctx)
+
+        question = 'Please type the row number for check details otherwise type c'
+        try:
+            choice = await helpers.get_multichoice_answer(self.bot, ctx, ctx.channel, row_num_to_code, question, timeout=60)
+        except asyncio.TimeoutError as e:
+            return await ctx.send('Please type in 60 seconds next time.')
+
+        if choice is None:
+            return await ctx.send('Command has been cancelled.')
+
+        warn_record = next((record for record in records if record['confession_ban_code'] == choice), None)
+        record = await self._fetch_with_ban_code(ctx, guild.id, warn_record['confession_ban_code'])
+        e = await self._create_embed(record)
+        await ctx.send(embed=e.to_embed())
+
+    async def _fetch_all_user_warns(self, guild_id):
+        """ Fetch all user warns for given guild """
+        query = """SELECT COUNT(confession_ban_code) AS warn_count,
+                user_hash_id
+                FROM warns
+                WHERE guild_id = $1
+                GROUP BY user_hash_id
+                ORDER BY COUNT(confession_ban_code) DESC"""
+
+        return await self.bot.pool.fetch(query, guild_id)
+
+    async def _fetch_user_warns(self, guild_id, user_hash_id):
+        """ Fetch a user warns for given server and user ID """
+        query = """SELECT confessions.confession_id,  confession_ban_code,
+                    user_hash_id, guild_id, channel_id, timestamp, confession_text,
+                    image_url, attachment_urls, user_banned
+                    FROM confessions
+                    INNER JOIN(SELECT confession_id
+                               FROM warns
+                               WHERE guild_id = $1 AND user_hash_id = $2) user_warns
+                    ON user_warns.confession_id = confessions.confession_id"""
+
+        return await self.bot.pool.fetch(query, guild_id, user_hash_id)
+
+    async def _delete_user_warns(self, guild_id, user_hash_id):
+        """ Delete a user warns """
+        query = f"""DELETE FROM warns
+                    WHERE guild_id = $1
+                    AND user_hash_id = $2
+                 """
+        return await self.bot.pool.execute(query, guild_id, user_hash_id)
+
+    @confess.command(name='fetch_u_warn', help='Fetch warned users by number of warnings',
+                     usage='', aliases=['fuw'])
+    @commands.has_permissions(manage_messages=True, ban_members=True)
+    @commands.guild_only()
+    @commands.is_owner()
+    async def fetch_u_warn(self, ctx):
+        guild = ctx.guild
+        records = await self._fetch_all_user_warns(guild.id)
+        if len(records) == 0:
+            return await ctx.send('No results found...')
+
+        nav = pag.EmbedNavigatorFactory(max_lines=20)
+        nav.add_line('**__Warned Users by count__**')
+        row_num_to_code = {}
+        for index, (count, user_hash_id) in enumerate(records):
+            line = f'**{index+1})** ID: **{user_hash_id}**  | **{count}**'
+            row_num_to_code[index+1] = user_hash_id
+            nav.add_line(line)
+
+        nav.start(ctx=ctx)
+
+        question = 'Please type the row number for check details otherwise type c'
+        try:
+            choice = await helpers.get_multichoice_answer(self.bot, ctx, ctx.channel, row_num_to_code, question, timeout=60)
+        except asyncio.TimeoutError as e:
+            return await ctx.send('Please type in 60 seconds next time.')
+
+        if choice is None:
+            return await ctx.send('Command has been cancelled.')
+
+        correct_record = next((record for record in records if record['user_hash_id'] == choice), None)
+
+        records = await self._fetch_user_warns(guild.id, correct_record['user_hash_id'])
+        if len(records) == 0:
+            raise ValueError('The warning records does not match with confessions records')
+
+        for record in records:
+            e = await self._create_embed(record)
+            await ctx.send(embed=e.to_embed())
+
+# *************** irritation ****************
+
+    @confess.command(name='irritate', help='Report a confession that irritates you',
+                     usage='', aliases=['ir'])
+    @commands.dm_only()
+    @commands.cooldown(1, command_cooldown, commands.BucketType.user)
+    async def irritate(self, ctx):
+        author = ctx.author
+        channel = ctx.channel
+        user_hexdigest = Confession.get_hash_code(str(author.id), n=16)
+
+        # Get guilds for that user
+        guilds = [await helpers.get_guild_by_id(self.bot, guild_id) for guild_id in self.confession_servers_map.keys()]
+        # filter guilds to keep only guild the user in
+        guilds = [guild for guild in guilds if await helpers.get_member_by_id(guild, author.id) is not None]
+
+        if len(guilds) == 0:
+            return await ctx.send('There is no server can be reachable at that moment.')
+
+        guild_dict = {index + 1: guild for index, guild in enumerate(guilds)}
+        guild_text = '\n'.join([f'**{index}) {guild.name}**' for index, guild in guild_dict.items()])
+        question = f"Which server you want to report irritation? " \
+                   f"Please choose the number or press **c** cancel it\n" \
+                   f"**__Servers__**\n" \
+                   f"{guild_text}"
+
+        try:
+            guild = await helpers.get_multichoice_answer(self.bot, ctx, channel, guild_dict, question)
+        except asyncio.TimeoutError:
+            return await channel.send("The timer for you to provide the choice is timeout. Please "
+                                      "choose your confession server again to be able to provide another.")
+        except commands.UserInputError as err:
+            raise err
+
+        if guild is None:
+            return await ctx.send('Command has been cancelled.')
+
+        question_2 = f"Please enter the ban code of confession you irritate\n " \
+                     f"You can find the ban code at the bottom of a confession.\n" \
+                     f"Type **c** to cancel the command."
+
+        def check_msg(m):
+            if m.author.id != ctx.author.id:
+                return False
+            if m.channel != ctx.channel:
+                return False
+
+            return m.content == 'c' or self._check_ban_code(m.content)
+
+        await channel.send(question_2)
+        try:
+            ban_code_msg = await self.bot.wait_for("message", check=check_msg, timeout=60)
+        except asyncio.TimeoutError as err:
+            return await ctx.send('Timeout error, please enter the code faster than 60 seconds')
+        else:
+            if ban_code_msg.content == 'c':
+                return await ctx.send('Command has been cancelled')
+
+        ban_code = ban_code_msg.content
+        record = await self._fetch_with_ban_code(ctx, guild.id, ban_code)
+
+        # Check user banned from that guild
+        res = await self._fetch_with_user_code(ctx, guild.id, record['user_hash_id'])
+        if res:
+            return await channel.send(f"The user you have been irritated has been already **BANNED**"
+                                      f"from confessions server, so no worries.")
+
+        if record['user_hash_id'] == user_hexdigest:
+            return await ctx.send('The confession ban code belongs to your confessions.\n'
+                                  'If you irritated your own confession, you can delete by using **?confess delete**')
+
+        # check the user already report irritation for this confession
+        check_query = "SELECT confession_ban_code FROM irritations " \
+                      "WHERE confession_ban_code = $1" \
+                      "AND user_hash_id = $2" \
+                      "AND guild_id=$3"
+        if await ctx.db.fetchrow(check_query, ban_code, user_hexdigest, guild.id) is not None:
+            return await ctx.send('You have been send your irritations for this confession already.\n'
+                                  'Please beware that excessive use of this command may'
+                                  ' **BAN** you to use other commands.')
+
+        # Get irritation
+        def check_msg(m):
+            if m.author.id != ctx.author.id:
+                return False
+            if m.channel != ctx.channel:
+                return False
+
+            return True
+
+        await channel.send(f"Please explain your irritation. "
+                           f"PLease use letters to cleanly explain your pinpoints.\n"
+                           f"You have **{message_timeout} seconds** to complete.")
+        try:
+            irritation_msg = await self.bot.wait_for("message",
+                                                     check=check_msg,
+                                                     timeout=message_timeout)
+        except asyncio.TimeoutError:
+            return await channel.send("The timer for you to give a server id has timed out. Please "
+                                      "give your confession again to be able to provide another.")
+
+        # Add user to warned user for this guildto get irritated for this confession
+        query = 'INSERT INTO irritations VALUES ($1, $2, $3, $4, $5, $6, $7)'
+        params = (record['confession_id'], ban_code,
+                  user_hexdigest, guild.id,
+                  record['channel_id'], datetime.datetime.utcnow(), irritation_msg.content)
+        try:
+            await ctx.db.execute(query, *params)
+        except asyncpg.UniqueViolationError as err:
+            print(err)
+            log.exception(err)
+
+        # Report irritation msg to admin channel
+        admin_channel = await helpers.get_channel_by_id(self.bot, guild, ADMIN_CHANNEL_ID)
+        if admin_channel:
+            url = f'URL: <https://discordapp.com/channels/{guild.id}/{record["channel_id"]}/{record["confession_id"]}>'
+            admin_msg = f"A member has been report an irritation:\n" \
+                        f"**{irritation_msg.content}**\n" \
+                        f"{url}\n" \
+                        f"Here is the confession the member has been irritated:"
+
+            e = await self._create_embed(record, is_detailed=False)
+            try:
+                await admin_channel.send(admin_msg, embed=e.to_embed())
+            except Exception as e:
+                await ctx.send(f"I encountered the error `{e}` "
+                               f"trying to send your deleted confession to confession channel:/")
+        return await ctx.send('Operation finished.')
+
+    @confess.command(name='fetch_irritation', help='Fetch all irritations',
+                     usage='<ban_code>\n\n'
+                           'ban_code: str,  default None - if ban ode given, '
+                           'only the record with ban code returned.\n\n',
+                     aliases=['fir'])
+    @commands.has_permissions(manage_messages=True, ban_members=True)
+    @commands.guild_only()
+    @commands.is_owner()
+    async def fetch_irritation(self, ctx, ban_code: str = None):
+        query = """SELECT *
+                    FROM irritations
+                    WHERE guild_id = $1"""
+        guild = ctx.guild
+        if ban_code is not None:
+            query += ' AND confession_ban_code=$2'
+            records = await ctx.db.fetch(query, guild.id, ban_code)
+        else:
+            records = await ctx.db.fetch(query, guild.id)
+
+        if len(records) == 0:
+            return await ctx.send('No results found...')
+
+        nav = pag.EmbedNavigatorFactory(max_lines=20)
+        nav.add_line('**__Irritations__**')
+        row_num_to_code = {}
+        for index, (_id, bcode, user_hash_id, _, _, date, msg) in enumerate(records):
+            line = f'**{index + 1})** Irritated ID: **{user_hash_id}**  | Confession ID: **{_id}** | \n' \
+                   f'BCode: **{bcode}** | **{date}** --> {msg}'
+            row_num_to_code[index + 1] = _id
+            nav.add_line(line)
+
+        nav.start(ctx=ctx)
+
+        question = 'Please type the row number for check details otherwise type c'
+        try:
+            choice = await helpers.get_multichoice_answer(self.bot, ctx, ctx.channel, row_num_to_code, question,
+                                                          timeout=60)
+        except asyncio.TimeoutError as e:
+            return await ctx.send('Please type in 60 seconds next time.')
+
+        if choice is None:
+            return await ctx.send('Command has been cancelled.')
+
+        correct_record = next((record for record in records if record['confession_id'] == choice), None)
+        record = await self._fetch_with_ban_code(ctx, guild.id, correct_record['confession_ban_code'])
         e = await self._create_embed(record)
         await ctx.send(embed=e.to_embed())
 

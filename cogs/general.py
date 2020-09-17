@@ -314,7 +314,12 @@ class General(commands.Cog):
                 cog_commands = self.bot.get_cog(cog).walk_commands()
                 commands_list = ''
                 for comm in cog_commands:
-                    if not comm.hidden and comm.qualified_name not in command_list:
+                    try:
+                        is_able_run = await comm.can_run(ctx)
+                    except commands.CommandError:
+                        is_able_run = False
+
+                    if not comm.hidden and comm.qualified_name not in command_list and is_able_run:
                         root_parent = comm.root_parent
                         qua_name = comm.qualified_name
                         if root_parent:
@@ -370,9 +375,14 @@ class General(commands.Cog):
                 #
                 # Format
                 for command in commands_list:
+                    try:
+                        is_able_run = await command.can_run(ctx)
+                    except commands.CommandError:
+                        is_able_run = False
+
                     help_text = ''
 
-                    if not command.hidden and command.qualified_name not in command_list:
+                    if not command.hidden and command.qualified_name not in command_list and is_able_run:
                         help_text += f'```{command.qualified_name}```\n' \
                                      f'**{command.help}**\n\n'
 

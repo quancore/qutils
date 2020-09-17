@@ -79,6 +79,8 @@ CONFESSION_CHANNEL_ID = int(
     environ.get("CONFESSION_CHANNEL_ID", Config.get_conf_key('channels', "CONFESSION_CHANNEL_ID", "750452002248458330")))
 RECEPTION_CHANNEL_ID = int(
     environ.get("RECEPTION_CHANNEL_ID", Config.get_conf_key('channels', "RECEPTION_CHANNEL_ID", "648623592828960768")))
+ADMIN_CHANNEL_ID = int(
+    environ.get("ADMIN_CHANNEL_ID", Config.get_conf_key('channels', "ADMIN_CHANNEL_ID", "653695277605322761")))
 
 # ****** people **********
 OWNER_ID = int(environ.get("OWNER_ID", Config.get_conf_key('members', "OWNER_ID", "647577161200566289")))
@@ -142,6 +144,8 @@ TIER2toTIER3 = 240
 base_json_dir = 'json_templates'
 ##### Confession cog #########
 message_timeout = Config.get_conf_key('confession', "message_timeout", 600, value_type='int')
+warn_limit = Config.get_conf_key('confession', "warn_limit", 3, value_type='int')
+command_cooldown = Config.get_conf_key('confession', "command_cooldown", 6000, value_type='int')
 ##############################
 ##### Automation cog #########
 # number of days the inactive members will be announced in announcement channel

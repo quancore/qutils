@@ -1,6 +1,6 @@
 {
-    "name": "confessions",
-    "__meta__": "cogs.confession.Confessions",
+    "name": "irritations",
+    "__meta__": "cogs.confession.Irritations",
     "columns": [
         {
             "column_type": {
@@ -99,57 +99,7 @@
             "nullable": true,
             "default": "",
             "unique": false,
-            "name": "confession_text",
-            "index_name": null
-        },
-        {
-            "column_type": {
-                "length": null,
-                "fixed": false,
-                "__meta__": "utils.db.String"
-            },
-            "index": false,
-            "primary_key": false,
-            "nullable": true,
-            "default": "",
-            "unique": false,
-            "name": "image_url",
-            "index_name": null
-        },
-        {
-            "column_type": {
-                "__meta__": "utils.db.JSON"
-            },
-            "index": false,
-            "primary_key": false,
-            "nullable": true,
-            "default": "'{}'::jsonb",
-            "unique": false,
-            "name": "attachment_urls",
-            "index_name": null
-        },
-        {
-            "column_type": {
-                "__meta__": "utils.db.Boolean"
-            },
-            "index": false,
-            "primary_key": false,
-            "nullable": true,
-            "default": false,
-            "unique": false,
-            "name": "user_banned",
-            "index_name": null
-        },
-        {
-            "column_type": {
-                "__meta__": "utils.db.Boolean"
-            },
-            "index": false,
-            "primary_key": false,
-            "nullable": true,
-            "default": false,
-            "unique": false,
-            "name": "is_deleted",
+            "name": "reason",
             "index_name": null
         }
     ]
