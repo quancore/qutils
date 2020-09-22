@@ -25,7 +25,7 @@ initial_extensions = (
     'cogs.remainder',
     'cogs.confession',
     'cogs.fun',
-    # 'cogs.automation'
+    'cogs.automation'
 )
 
 
