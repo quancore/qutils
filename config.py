@@ -130,8 +130,6 @@ removed_member_pm_template = 'Tekrar merhaba! Aktiflik rolünü daha önce belir
                              'bize tekrar katılabilirsin, unutma bu davet sadece {} gün geçerli olacak. ' \
                              'Davete tıklayıp yeniden kanala katıldığında bu sefer aktif olacağına ' \
                              'dair bana söz vermiş olacaksın, unutma!!!'
-# number of days the invite link will be valid which sent via pm to removed users
-rejoin_invite_timeout_days = 5
 
 # role upgrade template
 role_upgrade_template = 'Tebrikler {}! {} rolunden {} rolune yukseldin!'

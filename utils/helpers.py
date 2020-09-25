@@ -94,7 +94,7 @@ async def get_inactive_members(guild, included_roles: Iterable, activity_role, e
     for member in guild.members:
         member_delta = datetime.datetime.utcnow() - member.joined_at
         is_active = is_included = False
-        if member not in exceptions and member_delta.days > activity_min_day:
+        if member not in exceptions and member_delta.days >= activity_min_day:
             for role in member.roles:
                 if role is activity_role:
                     is_active = True

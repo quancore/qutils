@@ -115,7 +115,6 @@ class Reminder(commands.Cog):
         """ Cancel current timer if the ID is correct if given else cancel it directly"""
         is_cancel_timer = True if timer_ids is None else (True if self._current_timer.id in timer_ids else False)
         if self._current_timer and is_cancel_timer:
-            print(f'Cancelling current timer: {self._current_timer}')
             self._task.cancel()
             self._task = self.bot.loop.create_task(self.dispatch_timers())
 
@@ -127,7 +126,6 @@ class Reminder(commands.Cog):
                 # so we're gonna cap it off at 40 days
                 # see: http://bugs.python.org/issue20493
                 timer = self._current_timer = await self.wait_for_active_timers(days=40)
-                print(f'current timer: {timer}')
                 now = datetime.datetime.utcnow()
                 if timer.expires >= now:
                     to_sleep = (timer.expires - now).total_seconds()

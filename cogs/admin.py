@@ -15,7 +15,7 @@ from libneko import pag
 
 from config import GUILD_ID, ACTIVITY_ROLE_NAME, ACTIVITY_INCLUDED_ROLES, RECEPTION_CHANNEL_ID, \
     activity_schedule_gap, activity_template, activity_pm_template, role_upgrade_template, \
-    removed_member_pm_template, rejoin_invite_timeout_days, ANNOUNCEMENT_CHANNEL_ID, role_upgrade_gap, \
+    removed_member_pm_template, ANNOUNCEMENT_CHANNEL_ID, role_upgrade_gap, \
     TIER1, TIER1toTIER2, TIER2, TIER2toTIER3, TIER3, base_json_dir
 from utils import time, db, formats, helpers
 from utils.formats import EmbedGenerator, CustomEmbed, Plural, pag
@@ -431,7 +431,8 @@ class Admin(commands.Cog):
         global_exception_member_records = await self.fetch_all_exceptions(self.bot.pool, guild.id)
         global_exception_members = [await helpers.get_member_by_id(guild, record['member_id'])
                                     for record in global_exception_member_records]
-        exceptions = [member for member in global_exception_members if member and member not in exceptions]
+        exceptions = exceptions + [member for member in global_exception_members if member and member not in exceptions]
+
         exception_member_text = ''.join(f'{member.mention}\n' for member in exceptions)
 
         valid_members, member_text = await helpers.get_inactive_members(guild, included_roles,
@@ -856,13 +857,19 @@ class Admin(commands.Cog):
         if activity_role is None:
             return log.exception('Activity role has not found on scheduled removal event in event handler')
 
+        log.info(f'Scheduled member removal event has been started.\n'
+                 f'member list: {member_id_list}\n'
+                 f'reason: {reason}\n'
+                 f'is_ban: {is_ban}')
         reception_channel = await helpers.get_channel_by_id(self.bot, guild, RECEPTION_CHANNEL_ID)
         invite_link = None
         if reception_channel:
             try:
-                invite_link = reception_channel.create_invite((rejoin_invite_timeout_days * 86400), reason=reason)
-            except HTTPException:
-                pass
+                invite_link = await reception_channel.create_invite(max_use=1,
+                                                                    max_age=86400,
+                                                                    reason=reason)
+            except HTTPException as err:
+                log.info(f'Error on creating invitation: {err}')
 
         query_params = []
         col_list = DiscardedUsers.get_col_names(excluded=['id', 'num_discarded', 'extra'])
@@ -891,9 +898,11 @@ class Admin(commands.Cog):
                     else:
                         # send a rejoin message to a member if kicked
                         if invite_link:
-                            rejoin_msg = removed_member_pm_template.format(guild.name, invite_link,
-                                                                           rejoin_invite_timeout_days)
-                            await member.send(rejoin_msg)
+                            rejoin_msg = removed_member_pm_template.format(guild.name, invite_link, 1)
+                            try:
+                                await member.send(rejoin_msg)
+                            except Exception as e:
+                                log.info(f'Error on sending invitation link to user: {member.name}\n {e}')
 
                         await member.kick(reason=reason)
 
@@ -901,7 +910,7 @@ class Admin(commands.Cog):
                         (member.id, 1, member.display_name, member.joined_at, datetime.datetime.utcnow(),
                          is_ban, top_role_id, reason))
                 else:
-                    log.info(f'Member is excluded from discouragement on event handler: {member.mention}')
+                    log.info(f'Member is excluded from removal on event handler: {member.mention}')
 
         await self.bot.pool.executemany(query, query_params)
         log.info(f'Scheduled removal event created at: {timer.created_at.strftime("%Y-%m-%d %H:%M:%S")} '
