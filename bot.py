@@ -23,9 +23,12 @@ initial_extensions = (
     'cogs.admin',
     'cogs.general',
     'cogs.remainder',
-    'cogs.confession',
+    # 'cogs.confession',
     'cogs.fun',
-    'cogs.automation'
+    # 'cogs.automation',
+    'cogs.talks',
+    'cogs.cameradice'
+
 )
 
 

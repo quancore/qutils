@@ -4,11 +4,12 @@ import asyncio
 
 
 from discord import abc
-from discord import Guild, Role, Client, NotFound, Forbidden, HTTPException, InvalidData, Member, utils
+from discord import Guild, Role, Client, NotFound, Forbidden, \
+    HTTPException, InvalidData, Member, utils, TextChannel
 from discord.ext import commands
 
 from config import activity_min_day
-
+from libneko import pag
 
 # ******* Discord related ************
 async def get_channel_by_id(client: Client, guild: Guild, channel_id: int) \
@@ -113,6 +114,9 @@ async def get_inactive_members(guild, included_roles: Iterable, activity_role, e
 # ******* Util functions ************
 def representsInt(s):
     """ Try to cast given value to integer and return if possible else return -1"""
+    if s is None:
+        return -1
+
     try:
         s = int(s)
         return s
@@ -120,8 +124,8 @@ def representsInt(s):
         return -1
 
 
-async def get_multichoice_answer(client, ctx, channel, choices: dict, question: str,
-                                 timeout: int = 120, check: Optional[Callable[..., bool]] = None):
+async def get_multichoice_answer(client, ctx, choices: dict, question: str, timeout: int = 120,
+                                 check: Optional[Callable[..., bool]] = None):
     """ Send a multi choice question, check the answer to get correct integer choice and return choice item or None"""
     def check_msg(m):
         if m.author.id != ctx.author.id:
@@ -140,7 +144,7 @@ async def get_multichoice_answer(client, ctx, channel, choices: dict, question: 
     if min_choice < 0:
         raise ValueError('Min value in choices dict could not be smaller than 0')
 
-    await channel.send(question)
+    question_msg = await ctx.channel.send(question)
 
     try:
         # await self.bot.loop.create_task(self.bot.wait_for('message', check=check, timeout=60))
@@ -153,6 +157,27 @@ async def get_multichoice_answer(client, ctx, channel, choices: dict, question: 
     choice_int = representsInt(choice.content)
     # if the result of choice after casting to int is smaller than zero,
     # user has been provided c meaning to cancel the command
-    return None if choice_int < 0 else choices[choice_int]
+    return None if choice_int < 0 else choices[choice_int], (choice, question_msg)
+
+
+async def cleanup_messages(channel: TextChannel, messages: Iterable[abc.Snowflake],
+                           navigators: Optional[Iterable[pag.BaseNavigator]] = None, delete_after: int = 5):
+    """ Bulk delete messages in the given iterator """
+
+    if not isinstance(channel, TextChannel):
+        raise ValueError('The channel type is not TextChannel')
+
+    await asyncio.sleep(delete_after)
+
+    # cleanup all sent messages after successful operation
+    try:
+        await channel.delete_messages(messages)
+    except:
+        pass
+
+    # kill navigators
+    if navigators:
+        for nav in navigators:
+            nav.kill()
 
 

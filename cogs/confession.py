@@ -19,7 +19,7 @@ import typing
 from discord import File, TextChannel, Guild, InvalidArgument, Forbidden, HTTPException, RawMessageDeleteEvent, RawBulkMessageDeleteEvent
 
 import logging
-from config import ADMIN_CHANNEL_ID, CONFESSION_CHANNEL_ID, GUILD_ID, message_timeout, warn_limit, command_cooldown
+from config import ADMIN_CHANNEL_ID, CONFESSION_CHANNEL_ID, GUILD_ID, message_timeout, warn_limit, command_cooldown, TIER5
 from utils import db, helpers
 from utils.formats import CustomEmbed
 from libneko import pag
@@ -516,7 +516,7 @@ class Confession(commands.Cog):
                    f"{guild_text}"
 
         try:
-            guild = await helpers.get_multichoice_answer(self.bot, ctx, channel, guild_dict, question)
+            guild = await helpers.get_multichoice_answer(self.bot, ctx, guild_dict, question)
         except asyncio.TimeoutError:
             self.currently_confessing.discard(author.id)
             return await channel.send("The timer for you to provide the choice is timeout. Please "
@@ -675,7 +675,7 @@ class Confession(commands.Cog):
                            f'if you have required privileges.')
 
     @confess.command(name='fetchall', help='Fetch all the confession logs from DB for this guild',
-                     usage='<id_deleted>\n\n'
+                     usage='<is_deleted>\n\n'
                            'is_deleted: bool, default False - whether list only deleted records',
                      aliases=['fa'])
     @commands.has_permissions(manage_messages=True, ban_members=True)
@@ -694,7 +694,8 @@ class Confession(commands.Cog):
                     is_deleted
                     FROM confessions
                     WHERE guild_id = $1
-                    AND is_deleted=$2"""
+                    AND is_deleted=$2
+                    ORDER BY timestamp"""
 
         guild = ctx.guild
         records = await ctx.db.fetch(query, guild.id, is_deleted)
@@ -716,7 +717,7 @@ class Confession(commands.Cog):
 
         question = 'Please type the row number for check details otherwise type c'
         try:
-            choice = await helpers.get_multichoice_answer(self.bot, ctx, ctx.channel, row_num_to_id, question, timeout=60)
+            choice = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=60)
         except asyncio.TimeoutError as e:
             return await ctx.send('Please type in 60 seconds next time.')
 
@@ -770,7 +771,7 @@ class Confession(commands.Cog):
                    f"{guild_text}"
 
         try:
-            guild = await helpers.get_multichoice_answer(self.bot, ctx, channel, guild_dict, question)
+            guild = await helpers.get_multichoice_answer(self.bot, ctx, guild_dict, question)
         except asyncio.TimeoutError:
             return await channel.send("The timer for you to provide the choice is timeout. Please "
                                       "choose your confession server again to be able to provide another.")
@@ -798,7 +799,7 @@ class Confession(commands.Cog):
 
         question = 'Please type the row number for check details otherwise type c'
         try:
-            choice = await helpers.get_multichoice_answer(self.bot, ctx, channel, row_num_to_id, question, timeout=60)
+            choice = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=60)
         except asyncio.TimeoutError as e:
             return await ctx.send('Please type in 60 seconds next time.')
 
@@ -852,7 +853,7 @@ class Confession(commands.Cog):
                    f"{guild_text}"
 
         try:
-            guild = await helpers.get_multichoice_answer(self.bot, ctx, channel, guild_dict, question)
+            guild = await helpers.get_multichoice_answer(self.bot, ctx, guild_dict, question)
         except asyncio.TimeoutError:
             return await channel.send("The timer for you to provide the choice is timeout. Please "
                                       "choose your confession server again to be able to provide another.")
@@ -889,7 +890,7 @@ class Confession(commands.Cog):
         question = 'Please type the row number for delete confession otherwise type c\n' \
                    'THE CONFESSION WILL BE DELETED IRREVOCABLY!!!'
         try:
-            choice = await helpers.get_multichoice_answer(self.bot, ctx, channel, row_num_to_id, question, timeout=60)
+            choice = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=60)
         except asyncio.TimeoutError as e:
             return await ctx.send('Please type in 60 seconds next time.')
 
@@ -1168,7 +1169,7 @@ class Confession(commands.Cog):
 
         question = 'Please type the row number for check details otherwise type c'
         try:
-            choice = await helpers.get_multichoice_answer(self.bot, ctx, ctx.channel, row_num_to_code, question, timeout=60)
+            choice = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_code, question, timeout=60)
         except asyncio.TimeoutError as e:
             return await ctx.send('Please type in 60 seconds next time.')
 
@@ -1215,7 +1216,7 @@ class Confession(commands.Cog):
 
         question = 'Please type the row number for check details otherwise type c'
         try:
-            choice = await helpers.get_multichoice_answer(self.bot, ctx, ctx.channel, row_num_to_code, question, timeout=60)
+            choice = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_code, question, timeout=60)
         except asyncio.TimeoutError as e:
             return await ctx.send('Please type in 60 seconds next time.')
 
@@ -1282,7 +1283,7 @@ class Confession(commands.Cog):
 
         question = 'Please type the row number for check details otherwise type c'
         try:
-            choice = await helpers.get_multichoice_answer(self.bot, ctx, ctx.channel, row_num_to_code, question, timeout=60)
+            choice = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_code, question, timeout=60)
         except asyncio.TimeoutError as e:
             return await ctx.send('Please type in 60 seconds next time.')
 
@@ -1299,7 +1300,16 @@ class Confession(commands.Cog):
             e = await self._create_embed(record)
             await ctx.send(embed=e.to_embed())
 
-# *************** irritation ****************
+    @confess.command(name='decrypt', hidden=True,
+                     usage='', aliases=['dc'])
+    @commands.has_role(TIER5)
+    @commands.guild_only()
+    @commands.is_owner()
+    async def decrypt(self, ctx, user_hash_code: str):
+        found_member = self._find_member_by_hash_code(ctx.guild, user_hash_code)
+        return await ctx.send(f'Member is: {found_member.mention if found_member else "No member"}')
+
+    # *************** irritation ****************
 
     @confess.command(name='irritate', help='Report a confession that irritates you',
                      usage='', aliases=['ir'])
@@ -1326,7 +1336,7 @@ class Confession(commands.Cog):
                    f"{guild_text}"
 
         try:
-            guild = await helpers.get_multichoice_answer(self.bot, ctx, channel, guild_dict, question)
+            guild = await helpers.get_multichoice_answer(self.bot, ctx, guild_dict, question)
         except asyncio.TimeoutError:
             return await channel.send("The timer for you to provide the choice is timeout. Please "
                                       "choose your confession server again to be able to provide another.")
@@ -1463,8 +1473,7 @@ class Confession(commands.Cog):
 
         question = 'Please type the row number for check details otherwise type c'
         try:
-            choice = await helpers.get_multichoice_answer(self.bot, ctx, ctx.channel, row_num_to_code, question,
-                                                          timeout=60)
+            choice = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_code, question, timeout=60)
         except asyncio.TimeoutError as e:
             return await ctx.send('Please type in 60 seconds next time.')
 

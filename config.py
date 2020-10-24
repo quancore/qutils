@@ -140,10 +140,21 @@ TIER1toTIER2 = 60
 TIER2toTIER3 = 240
 # directory for json permission templates
 base_json_dir = 'json_templates'
+
+# various delay value for operations such as message deletion
+short_delay = Config.get_conf_key('main', "short_delay", 60, value_type='int')
+mid_delay = Config.get_conf_key('main', "mid_delay", 120, value_type='int')
+long_delay = Config.get_conf_key('main', "long_delay", 300, value_type='int')
 ##### Confession cog #########
 message_timeout = Config.get_conf_key('confession', "message_timeout", 600, value_type='int')
 warn_limit = Config.get_conf_key('confession', "warn_limit", 3, value_type='int')
 command_cooldown = Config.get_conf_key('confession', "command_cooldown", 6000, value_type='int')
+##############################
+##### Fun ####################
+TENOR_API_KEY = get_env("TENOR_API_KEY")
+##### Cameradice #############
+max_lost_member = Config.get_conf_key('cameradice', "max_lost_member", 4, value_type='int')
+start_game_delay = Config.get_conf_key('cameradice', "start_game_delay", 10, value_type='int')
 ##############################
 ##### Automation cog #########
 # number of days the inactive members will be announced in announcement channel

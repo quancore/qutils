@@ -1,10 +1,6 @@
 import logging
-import random
-import string
 import typing
 import datetime
-import pprint
-
 
 from discord import Embed, TextChannel, Color, Role, Member, utils
 from discord.ext import commands
@@ -33,27 +29,32 @@ class General(commands.Cog):
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
         # Try provide some user feedback instead of logging all errors.
-
         if isinstance(error, commands.CommandNotFound):
-            return  # No need to log unfound commands anywhere or return feedback
-
-        if isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send(f"\N{NO ENTRY SIGN} The command has not found.\n {str(error)}")
+        elif isinstance(error, commands.NoPrivateMessage):
+            await ctx.send(f"\N{NO ENTRY SIGN} This command cannot use in DM.\n {str(error)}")
+        elif isinstance(error, commands.BotMissingPermissions):
+            await ctx.send(f"\N{NO ENTRY SIGN} The bot has missing permission: `{error.missing_perms[0]}`"
+                           f" required to run the command.\n {str(error)}")
+        elif isinstance(error, commands.MissingPermissions):
+            await ctx.send(f"\N{NO ENTRY SIGN} The author of the command has missing permission:"
+                           f" `{error.missing_perms[0]}`"
+                           f" required to run the command.\n {str(error)}")
+        elif isinstance(error, commands.MissingRequiredArgument):
             # Missing arguments are likely human error so do not need logging
             parameter_name = error.param.name
-            return await ctx.send(f"\N{NO ENTRY SIGN} Required argument {parameter_name} was missing.\n {str(error)}")
+            await ctx.send(f"\N{NO ENTRY SIGN} Required argument {parameter_name} was missing.\n {str(error)}")
         elif isinstance(error, commands.CheckFailure):
-            return await ctx.send(f"\N{NO ENTRY SIGN} You do not have permission to use that command.\n {str(error)}")
+            await ctx.send(f"\N{NO ENTRY SIGN} custom.\n {str(error)}")
         elif isinstance(error, commands.CommandOnCooldown):
             retry_after = round(error.retry_after)
-            return await ctx.send(f"\N{HOURGLASS} Command is on cooldown, try again after {retry_after} seconds.\n {str(error)}")
-
-        # All errors below this need reporting and so do not return
-
-        if isinstance(error, commands.ArgumentParsingError):
-            # Provide feedback & report error
+            await ctx.send(f"\N{HOURGLASS} Command is on cooldown, try again after {retry_after} seconds.\n {str(error)}")
+        elif isinstance(error, commands.ArgumentParsingError):
             await ctx.send(f"\N{NO ENTRY SIGN} An issue occurred while attempting to parse an argument.\n {str(error)}")
         elif isinstance(error, commands.BadArgument):
             await ctx.send(f"\N{NO ENTRY SIGN} Conversion of an argument failed.\n {str(error)}")
+        elif isinstance(error, commands.UserInputError):
+            await ctx.send(f"\N{INPUT SYMBOL FOR LATIN LETTERS} You have provided wrong input.\n {str(error)}")
         else:
             await ctx.send(f"\N{NO ENTRY SIGN} An error occurred during execution, the error has been reported.\n {str(error)}")
 
@@ -90,8 +91,9 @@ class General(commands.Cog):
                             'You can give member name or mention. If the name of member consists of'
                             'multiple words, use "..."',
                       aliases=['u'])
+    @commands.has_any_role(*VALID_STATS_ROLES)
     @commands.guild_only()
-    async def user(self, ctx, members: commands.Greedy[Member], * ,size: typing.Optional[str] = 's'):
+    async def user(self, ctx, members: commands.Greedy[Member], *, size: typing.Optional[str] = 's'):
         if not members:
             raise commands.BadArgument(f'There is no member with given name')
 
@@ -143,6 +145,7 @@ class General(commands.Cog):
 
     @commands.group(name='stats', help='Command group for getting several statistics of the server',
                     hidden=True, aliases=['s'])
+    @commands.has_any_role(*VALID_STATS_ROLES)
     async def stats(self, ctx):
         pass
 
@@ -209,7 +212,7 @@ class General(commands.Cog):
                                   avatar_url=self.bot.user.avatar_url,
                                   is_thumbnail=False)
 
-        return await ctx.send(embed=e.to_embed())
+        return await ctx.send(embed=e.to_embed(), delete_after=300)
 
     @stats.command(name='gender', help='Get server statistics based on gender',
                    usage='gender', aliases=['g'])
@@ -290,7 +293,7 @@ class General(commands.Cog):
                                   avatar_url=self.bot.user.avatar_url,
                                   is_thumbnail=False)
 
-        return await ctx.send(embed=e.to_embed())
+        return await ctx.send(embed=e.to_embed(), delete_after=300)
 
     @commands.command(name='help', description='The help command!', help='Help command', hidden=True,
                       aliases=['commands', 'command'], usage='section_name\n Ex: !help Admin')
@@ -319,7 +322,16 @@ class General(commands.Cog):
                     except commands.CommandError:
                         is_able_run = False
 
-                    if not comm.hidden and comm.qualified_name not in command_list and is_able_run:
+                    is_parent_able_run = True
+                    if comm.parent:
+                        try:
+                            is_parent_able_run = await comm.parent.can_run(ctx)
+                        except commands.CommandError:
+                            is_parent_able_run = False
+
+                    can_run_final = is_able_run and is_parent_able_run
+
+                    if not comm.hidden and comm.qualified_name not in command_list and can_run_final:
                         root_parent = comm.root_parent
                         qua_name = comm.qualified_name
                         if root_parent:
@@ -380,9 +392,17 @@ class General(commands.Cog):
                     except commands.CommandError:
                         is_able_run = False
 
-                    help_text = ''
+                    is_parent_able_run = True
+                    if command.parent:
+                        try:
+                            is_parent_able_run = await command.parent.can_run(ctx)
+                        except commands.CommandError:
+                            is_parent_able_run = False
 
-                    if not command.hidden and command.qualified_name not in command_list and is_able_run:
+                    can_run_final = is_able_run and is_parent_able_run
+
+                    help_text = ''
+                    if not command.hidden and command.qualified_name not in command_list and can_run_final:
                         help_text += f'```{command.qualified_name}```\n' \
                                      f'**{command.help}**\n\n'
 
@@ -402,22 +422,15 @@ class General(commands.Cog):
                         # Finally the format
                         help_text += f'Format: `[@{self.bot.user.name}#{self.bot.user.discriminator} or prefix]' \
                                      f' {command.full_parent_name} {command.name} {command.usage if command.usage is not None else ""}`\n\n'
-
-                        try:
-                            is_able_run = await command.can_run(ctx)
-                        except commands.CommandError:
-                            is_able_run = False
-
-                        help_text += f'*You {"are" if is_able_run else "are not"} allowed to run the command.*\n\n'
                         help_command_texts.append(help_text)
 
-                help_embeds = self._create_help_embeds(help_command_texts, author_name=ctx.author.name)
-
+                help_embeds = self._create_help_embeds(help_command_texts, author_name=ctx.author.name, cog_name=cog)
                 return [await ctx.send(embed=help_embed) for help_embed in help_embeds]
 
             else:
                 # Notify the user of invalid cog and finish the command
-                return await ctx.send('Invalid cog specified.\nUse `help` command to list_role all cogs.')
+                return await ctx.send('Invalid cog specified.\n'
+                                      'Use `help` command to list_role all cogs.')
 
     def _get_boilerplate_embed(self, guild=None, author_name=None, title='Help'):
         """ Create a boilerplate empty help embed """
@@ -433,24 +446,25 @@ class General(commands.Cog):
         else:
             return embed
 
-    def _create_help_embeds(self, help_command_texts, author_name=None):
+    def _create_help_embeds(self, help_command_texts, author_name=None, cog_name=None):
         """ Split help commands into chunks """
         new_help_text = ''
         help_embeds = []
         is_embed_created = False
+        cog_text = f' **({cog_name})**'if cog_name is not None else ''
         for help_text in help_command_texts:
             if len(new_help_text) + len(help_text) < 2048:
                 new_help_text += help_text
                 is_embed_created = False
             else:
-                title = 'Help' if len(help_embeds) == 0 else f'Help-{len(help_embeds) + 1}'
+                title = f'Help{cog_text}' if len(help_embeds) == 0 else f'Help{cog_text}-{len(help_embeds) + 1}'
                 help_embed = self._get_boilerplate_embed(author_name=author_name, title=title)
                 help_embed.description = new_help_text
                 help_embeds.append(help_embed)
                 new_help_text, is_embed_created = help_text, True
 
         if not is_embed_created:
-            title = 'Help' if len(help_embeds) == 0 else f'Help-{len(help_embeds) + 1}'
+            title = f'Help{cog_text}' if len(help_embeds) == 0 else f'Help{cog_text}-{len(help_embeds) + 1}'
             help_embed = self._get_boilerplate_embed(author_name=author_name, title=title)
             help_embed.description = new_help_text
             help_embeds.append(help_embed)
