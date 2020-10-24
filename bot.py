@@ -23,12 +23,11 @@ initial_extensions = (
     'cogs.admin',
     'cogs.general',
     'cogs.remainder',
-    # 'cogs.confession',
     'cogs.fun',
-    # 'cogs.automation',
+    'cogs.cameradice',
     'cogs.talks',
-    'cogs.cameradice'
-
+    # 'cogs.confession',
+    # 'cogs.automation',
 )
 
 
@@ -86,6 +85,8 @@ class Qutils(commands.AutoShardedBot):
                 self.load_extension(extension)
             except Exception as e:
                 log.exception(f'Failed to load extension {extension}.', exc_info=True)
+            else:
+                log.info(f'Extension loaded: {extension}')
 
         # Set event loop exception handler
         self.loop.set_exception_handler(exception_handler)
