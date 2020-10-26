@@ -137,6 +137,43 @@ class Admin(commands.Cog):
         asyncio.ensure_future(self.update_roles(), loop=self.bot.loop)
 
 # *******************************************
+    @commands.command(hidden=True)
+    @commands.is_owner()
+    async def load(self, *, module : str):
+        """Loads a module."""
+        try:
+            self.bot.load_extension(module)
+        except Exception as e:
+            await self.bot.say('\N{PISTOL}')
+            await self.bot.say('{}: {}'.format(type(e).__name__, e))
+        else:
+            await self.bot.say('\N{OK HAND SIGN}')
+
+    @commands.command(hidden=True)
+    @commands.is_owner()
+    async def unload(self, *, module : str):
+        """Unloads a module."""
+        try:
+            self.bot.unload_extension(module)
+        except Exception as e:
+            await self.bot.say('\N{PISTOL}')
+            await self.bot.say('{}: {}'.format(type(e).__name__, e))
+        else:
+            await self.bot.say('\N{OK HAND SIGN}')
+
+    @commands.command(name='reload', hidden=True)
+    @commands.is_owner()
+    async def _reload(self, *, module : str):
+        """Reloads a module."""
+        try:
+            self.bot.unload_extension(module)
+            self.bot.load_extension(module)
+        except Exception as e:
+            await self.bot.say('\N{PISTOL}')
+            await self.bot.say('{}: {}'.format(type(e).__name__, e))
+        else:
+            await self.bot.say('\N{OK HAND SIGN}')
+
     @commands.command(name='set_prefix', help='Set the server prefix',
                       usage='<prefix_to_set>\n\n'
                             'For setting multiple prefix, use: "! ? - ...."\n\n'
