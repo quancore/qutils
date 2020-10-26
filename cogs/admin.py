@@ -137,42 +137,42 @@ class Admin(commands.Cog):
         asyncio.ensure_future(self.update_roles(), loop=self.bot.loop)
 
 # *******************************************
-    @commands.command(hidden=True)
+    @commands.command(name="load_module", hidden=True)
     @commands.is_owner()
-    async def load_module(self, *, module: str):
+    async def load_module(self, ctx, *, module: str):
         """Loads a module."""
         try:
             self.bot.load_extension(module)
         except Exception as e:
-            await self.bot.say('\N{PISTOL}')
-            await self.bot.say('{}: {}'.format(type(e).__name__, e))
+            await ctx.channel.send('\N{PISTOL}')
+            await ctx.channel.send('{}: {}'.format(type(e).__name__, e))
         else:
-            await self.bot.say('\N{OK HAND SIGN}')
+            await ctx.channel.send('\N{OK HAND SIGN}')
 
-    @commands.command(hidden=True)
+    @commands.command(name="unload_module", hidden=True)
     @commands.is_owner()
-    async def unload_module(self, *, module: str):
+    async def unload_module(self, ctx, *, module: str):
         """Unloads a module."""
         try:
             self.bot.unload_extension(module)
         except Exception as e:
-            await self.bot.say('\N{PISTOL}')
-            await self.bot.say('{}: {}'.format(type(e).__name__, e))
+            await ctx.channel.send('\N{PISTOL}')
+            await ctx.channel.send('{}: {}'.format(type(e).__name__, e))
         else:
-            await self.bot.say('\N{OK HAND SIGN}')
+            await ctx.channel.send('\N{OK HAND SIGN}')
 
     @commands.command(name='reload', hidden=True)
     @commands.is_owner()
-    async def _reload_module(self, *, module: str):
+    async def _reload_module(self, ctx, *, module: str):
         """Reloads a module."""
         try:
             self.bot.unload_extension(module)
             self.bot.load_extension(module)
         except Exception as e:
-            await self.bot.say('\N{PISTOL}')
-            await self.bot.say('{}: {}'.format(type(e).__name__, e))
+            await ctx.channel.send('\N{PISTOL}')
+            await ctx.channel.send('{}: {}'.format(type(e).__name__, e))
         else:
-            await self.bot.say('\N{OK HAND SIGN}')
+            await ctx.channel.send('\N{OK HAND SIGN}')
 
     @commands.command(name='set_prefix', help='Set the server prefix',
                       usage='<prefix_to_set>\n\n'
