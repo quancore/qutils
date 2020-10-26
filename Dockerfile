@@ -5,7 +5,7 @@ ENV conda_env=$conda_env
 
 # Add the user that will run the app (no need to run as root)
 RUN groupadd -r myuser && useradd -r -g myuser myuser
-RUN apt-get install -y libc-dev
+RUN apt-get update && apt-get install -y libc-dev
 
 ADD environment.yml /tmp/environment.yml
 RUN conda update conda && conda env create nomkl -f /tmp/environment.yml && \
