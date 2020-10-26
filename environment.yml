@@ -1,65 +1,68 @@
-# This file may be used to create an environment using:
-# $ conda create --name <env> --file <this file>
-# platform: linux-64
-_libgcc_mutex=0.1=main
-aiofiles=0.5.0=pypi_0
-aiohttp=3.6.2=pypi_0
-asn1crypto=1.4.0=py_0
-async-timeout=3.0.1=pypi_0
-asyncpg=0.20.1=pypi_0
-asynctest=0.13.0=pypi_0
-attrs=19.3.0=pypi_0
-brotlipy=0.7.0=py37h7b6447c_1000
-ca-certificates=2020.7.22=0
-certifi=2020.6.20=py37_0
-cffi=1.14.2=py37he30daa8_0
-chardet=3.0.4=pypi_0
-click=7.1.2=py_0
-coverage=5.2=pypi_0
-cryptography=3.0=pypi_0
-decorator=4.4.2=pypi_0
-discord-py=1.4.1=pypi_0
-docutils=0.16=pypi_0
-googletrans=3.0.0=pypi_0
-h11=0.9.0=pypi_0
-h2=3.2.0=pypi_0
-hpack=3.0.0=pypi_0
-hstspreload=2020.10.6=pypi_0
-httpcore=0.9.1=pypi_0
-httpx=0.13.3=pypi_0
-hyperframe=5.2.0=pypi_0
-idna=2.8=pypi_0
-ld_impl_linux-64=2.33.1=h53a641e_7
-libedit=3.1.20191231=h14c3975_1
-libffi=3.3=he6710b0_2
-libgcc-ng=9.1.0=hdf63c60_0
-libneko=0.24.9=pypi_0
-libstdcxx-ng=9.1.0=hdf63c60_0
-multidict=4.7.6=pypi_0
-ncurses=6.2=he6710b0_1
-openssl=1.1.1g=h7b6447c_0
-parsedatetime=2.6=pypi_0
-pillow=7.2.0=pypi_0
-pip=20.2.2=py37_0
-pycparser=2.20=py_2
-pyopenssl=19.1.0=py_1
-pysocks=1.7.1=py37_1
-python=3.7.9=h7579374_0
-python-dateutil=2.8.1=py_0
-python-dotenv=0.14.0=pypi_0
-readline=8.0=h7b6447c_0
-requests=2.24.0=pypi_0
-rfc3986=1.4.0=pypi_0
-sentry-sdk=0.19.1=pypi_0
-setuptools=49.6.0=py37_0
-six=1.15.0=py_0
-sniffio=1.2.0=pypi_0
-sqlite=3.33.0=h62c20be_0
-tk=8.6.10=hbc83047_0
-urllib3=1.25.10=pypi_0
-validators=0.18.1=pypi_0
-websockets=8.1=pypi_0
-wheel=0.35.1=py_0
-xz=5.2.5=h7b6447c_0
-yarl=1.4.2=pypi_0
-zlib=1.2.11=h7b6447c_3
+name: disc
+channels:
+  - defaults
+dependencies:
+  - _libgcc_mutex=0.1=main
+  - asn1crypto=1.4.0=py_0
+  - brotlipy=0.7.0=py37h7b6447c_1000
+  - ca-certificates=2020.7.22=0
+  - certifi=2020.6.20=py37_0
+  - cffi=1.14.2=py37he30daa8_0
+  - click=7.1.2=py_0
+  - ld_impl_linux-64=2.33.1=h53a641e_7
+  - libedit=3.1.20191231=h14c3975_1
+  - libffi=3.3=he6710b0_2
+  - libgcc-ng=9.1.0=hdf63c60_0
+  - libstdcxx-ng=9.1.0=hdf63c60_0
+  - ncurses=6.2=he6710b0_1
+  - openssl=1.1.1g=h7b6447c_0
+  - pip=20.2.2=py37_0
+  - pycparser=2.20=py_2
+  - pyopenssl=19.1.0=py_1
+  - pysocks=1.7.1=py37_1
+  - python=3.7.9=h7579374_0
+  - python-dateutil=2.8.1=py_0
+  - readline=8.0=h7b6447c_0
+  - setuptools=49.6.0=py37_0
+  - six=1.15.0=py_0
+  - sqlite=3.33.0=h62c20be_0
+  - tk=8.6.10=hbc83047_0
+  - wheel=0.35.1=py_0
+  - xz=5.2.5=h7b6447c_0
+  - zlib=1.2.11=h7b6447c_3
+  - pip:
+    - aiofiles==0.5.0
+    - aiohttp==3.6.2
+    - async-timeout==3.0.1
+    - asyncpg==0.20.1
+    - asynctest==0.13.0
+    - attrs==19.3.0
+    - chardet==3.0.4
+    - coverage==5.2
+    - cryptography==3.0
+    - decorator==4.4.2
+    - discord-py==1.4.1
+    - docutils==0.16
+    - googletrans==3.0.0
+    - h11==0.9.0
+    - h2==3.2.0
+    - hpack==3.0.0
+    - hstspreload==2020.10.6
+    - httpcore==0.9.1
+    - httpx==0.13.3
+    - hyperframe==5.2.0
+    - idna==2.8
+    - libneko==0.24.9
+    - multidict==4.7.6
+    - parsedatetime==2.6
+    - pillow==7.2.0
+    - python-dotenv==0.14.0
+    - requests==2.24.0
+    - rfc3986==1.4.0
+    - sentry-sdk==0.19.1
+    - sniffio==1.2.0
+    - urllib3==1.25.10
+    - validators==0.18.1
+    - websockets==8.1
+    - yarl==1.4.2
+prefix: /home/baran/anaconda3/envs/disc
