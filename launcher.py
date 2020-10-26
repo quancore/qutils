@@ -3,7 +3,7 @@
 import logging
 import asyncio
 import contextlib
-# import sentry_sdk
+import sentry_sdk
 import click
 import traceback
 import importlib
@@ -16,31 +16,45 @@ from utils.logger import DiscordHandler
 from utils.db import Table
 from config import BOT_TOKEN, SENTRY_URL, PostgreSQL
 from bot import Qutils, initial_extensions
+from sentry_sdk.integrations.logging import LoggingIntegration
+
 
 # config class for postgresql
 postgres_config = PostgreSQL()
+# All of this is already happening by default!
+sentry_logging = LoggingIntegration(
+    level=logging.DEBUG,        # Capture info and above as breadcrumbs
+    event_level=logging.INFO  # Send errors as events
+)
+sentry_sdk.init(SENTRY_URL, integrations=[sentry_logging])
 
+
+def setup_file_logger(name):
+    logger = logging.getLogger(name)
+    file_handler = logging.FileHandler(filename='qutils.log', encoding='utf-8', mode='w')
+    dt_fmt = '%Y-%m-%d %H:%M:%S'
+    fmt = logging.Formatter('[{asctime}] [{levelname:<7}] {name}: {message}', dt_fmt, style='{')
+    file_handler.setFormatter(fmt)
+    logger.addHandler(file_handler)
+    logger.setLevel(logging.DEBUG)
+
+def setup_setry_logger(name):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
 
 @contextlib.contextmanager
 def setup_logging(name, bot):
     try:
         # __enter__
         logging.getLogger('discord').setLevel(logging.INFO)
-        logging.getLogger('discord.http').setLevel(logging.WARNING)
+        logging.getLogger('discord.http').setLevel(logging.WARN)
 
         logger = logging.getLogger(name)
-
-        file_handler = logging.FileHandler(filename='qutils.log', encoding='utf-8', mode='w')
-        dt_fmt = '%Y-%m-%d %H:%M:%S'
-        fmt = logging.Formatter('[{asctime}] [{levelname:<7}] {name}: {message}', dt_fmt, style='{')
-        file_handler.setFormatter(fmt)
-
         discord_handler = DiscordHandler(bot)
 
-        logger.addHandler(file_handler)
         logger.addHandler(discord_handler)
 
-        logger.exception('Logging has been setup.')
+        logger.info('Logging has been setup.')
         logger.setLevel(logging.DEBUG)
 
         yield
@@ -61,13 +75,17 @@ def setup_logging(name, bot):
 
 def run_bot():
     # create bot
+    setup_file_logger('root')
+    setup_setry_logger('sentry_sdk')
+    loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+    for handler in loggers:
+        print(handler)
     bot = Qutils()
     with setup_logging('root', bot):
         loop = asyncio.get_event_loop()
         log = logging.getLogger('root')
         bot.log = log
         """Entry point for poetry script."""
-        # sentry_sdk.init(SENTRY_URL)
 
         try:
             pool = loop.run_until_complete(Table.create_pool(postgres_config.return_connection_str(), command_timeout=60))

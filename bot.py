@@ -17,7 +17,9 @@ description = """
 Qutils bot provides several important utilities for the server.
 """
 
-log = logging.getLogger('root')
+# log = logging.getLogger('root')
+log = logging.getLogger('sentry_sdk')
+
 
 initial_extensions = (
     'cogs.admin',
