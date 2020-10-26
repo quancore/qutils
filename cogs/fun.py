@@ -22,7 +22,8 @@ import random
 
 class Fun(commands.Cog):
     base_tdk_url = "https://sozluk.gov.tr/gts"
-    base_tenor_url = "https://api.tenor.com/v1/random?"
+    base_random_tenor_url = "https://api.tenor.com/v1/random?"
+    base_search_tenor_url = "https://api.tenor.com/v1/search?"
 
     def __init__(self, bot):
         self.bot = bot
@@ -330,24 +331,40 @@ class Fun(commands.Cog):
     async def search_tenor(self, ctx, term, limit, **kwargs):
         """ Search and find a gif from Tenor and return url"""
         kwargs['q'] = term
-        kwargs['limit'] = limit
+        kwargs['limit'] = max(min(limit, 1), 50)
         kwargs['key'] = TENOR_API_KEY
-        async with ctx.session.get(url=self.base_tenor_url, params=kwargs) as resp:
-            if resp.status != 200:
-                return None
-            json = await resp.json()
-            if json:
-                return json['results'][0]['itemurl']
+        search_type = kwargs.get('search_type', 's')
+        base_url = self.base_search_tenor_url
+        gif_urls = None
+        if search_type == 'r':
+            base_url = self.base_random_tenor_url
+        async with ctx.session.get(url=base_url, params=kwargs) as resp:
+            if resp.status == 200:
+                json = await resp.json()
+                if json and 'results' in json:
+                    results = json['results']
+                    gif_urls = [result['media'][0]['gif']['url'] for result in results if result]
 
-    @commands.command(name='Slot', help='Play a slot machine', aliases=['slots', 'bet'])
-    @commands.cooldown(rate=5, per=1, type=commands.BucketType.user)
-    # @commands.has_any_role(*VALID_STATS_ROLES)
-    async def slot(self, ctx):
+        return gif_urls
+
+    @commands.command(name='slot', help='Play a slot machine', aliases=['sl', 'bet'],
+                      usage='<content_filter>\n\n'
+                           'content_filter: string, default o - Content filter. '
+                            'Values h for high (no nudity, violence etc.), m for medium (medium filtering)'
+                            'l for low (low filtering the content) and o for off (no filter) \n'
+                            'Please check for details: https://tenor.com/gifapi/documentation#contentfilter\n'
+                           'Ex: !slot\n\n')
+    @commands.cooldown(rate=10, per=3600, type=commands.BucketType.user)
+    async def slot(self, ctx, *, content_filter: str = 'o'):
         """ Roll the slot machine """
         async def get_random_gif():
             random_gift = random.choice(list(won_gifts.keys()))
-            gift_sentence = won_gifts.get(random_gift)
-            gif_url = await self.search_tenor(ctx, random_gift, 1)
+            gift_sentence, gif_url = won_gifts.get(random_gift), None
+            gift_urls = await self.search_tenor(ctx, random_gift, 50,
+                                                media_filter='minimal',
+                                                contentfilter=filter_value)
+            if gift_urls:
+                gif_url = random.choice(gift_urls)
 
             return gift_sentence, gif_url
 
@@ -358,6 +375,13 @@ class Fun(commands.Cog):
                      '100': '{} give you 💯', 'allah': 'you received ALLAHIN DUASI from {} 🙏🏻', 'Lingerie': 'you received garter from {}',
                      'travel': 'you started a new world tour with {} 🌎'
                      }
+        content_filter_map = {'o': 'off', 'l': 'low', 'm': 'medium', 'h': 'high'}
+        if content_filter is not None:
+            filter_value = content_filter_map.get(content_filter)
+            if filter_value is None:
+                raise commands.BadArgument('Security level is not valid '
+                                           'please use l (low), m (medium) h (high)')
+
         emojis = "🍎🍊🍐🍋🍉🍇🍓🍒"
         a = random.choice(emojis)
         b = random.choice(emojis)
@@ -377,7 +401,6 @@ class Fun(commands.Cog):
         e = CustomEmbed.from_dict(embed_dict, is_thumbnail=False, author_name=ctx.author)
         e.set_image(url=gif_url)
         return await ctx.send(embed=e)
-
 
 
 def setup(bot):

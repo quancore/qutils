@@ -12,10 +12,10 @@ class _ContextDBAcquire:
         self.timeout = timeout
 
     def __await__(self):
-        return self.ctx.acquire(self.timeout).__await__()
+        return self.ctx._acquire(self.timeout).__await__()
 
     async def __aenter__(self):
-        await self.ctx.acquire(self.timeout)
+        await self.ctx._acquire(self.timeout)
         return self.ctx.db
 
     async def __aexit__(self, *args):
@@ -36,26 +36,28 @@ class Context(commands.Context):
     def session(self):
         return self.bot.session
 
-    async def disambiguate(self, matches, entry):
+    async def disambiguate(self, matches, max_retry=3, delete_after=60, timeout=30):
         if len(matches) == 0:
             raise ValueError('No results found.')
 
         if len(matches) == 1:
             return matches[0]
 
-        await self.send('There are too many matches... Which one did you mean? **Only say the number**.')
-        await self.send('\n'.join(f'{index}: {entry(item)}' for index, item in enumerate(matches, 1)))
+        await self.send('There are too many matches... Which one did you mean? **Only say the number**.\n'
+                        'If none matches, choose nothing.', delete_after=delete_after)
+        await self.send('\n'.join(f'{index}) **{item}**' for index, item in enumerate(matches, 1)),
+                        delete_after=delete_after)
 
         def check(m):
             return m.content.isdigit() and m.author.id == self.author.id and m.channel.id == self.channel.id
 
         await self.release()
 
-        # only give them 3 tries.
+        # only give them n tries.
         try:
-            for i in range(3):
+            for i in range(max_retry):
                 try:
-                    message = await self.bot.wait_for('message', check=check, timeout=30.0)
+                    message = await self.bot.wait_for('message', check=check, timeout=timeout)
                 except asyncio.TimeoutError:
                     raise ValueError('Took too long. Goodbye.')
 
@@ -63,13 +65,13 @@ class Context(commands.Context):
                 try:
                     return matches[index - 1]
                 except:
-                    await self.send(f'Please give me a valid number. {2 - i} tries remaining...')
+                    await self.send(f'Please give me a valid number. {2 - i} tries remaining...', delete_after=delete_after)
 
             raise ValueError('Too many tries. Goodbye.')
         finally:
             await self.acquire()
 
-    async def prompt(self, message, *, timeout=60.0, delete_after=True, reacquire=True, author_id=None):
+    async def prompt(self, message, *, timeout=60.0, delete_after=True, reacquire=True, author_id=None, embed=None):
         """An interactive reaction confirmation dialog.
 
         Parameters
@@ -86,6 +88,8 @@ class Context(commands.Context):
         author_id: Optional[int]
             The member who should respond to the prompt. Defaults to the author of the
             Context's message.
+        embed: Optional[Discord.embed]
+            Optional Discord Embed message.
 
         Returns
         --------
@@ -101,7 +105,7 @@ class Context(commands.Context):
         fmt = f'{message}\n\nReact with \N{WHITE HEAVY CHECK MARK} to confirm or \N{CROSS MARK} to deny.'
 
         author_id = author_id or self.author.id
-        msg = await self.send(fmt)
+        msg = await self.send(fmt, embed=embed)
 
         confirm = None
 
@@ -162,7 +166,7 @@ class Context(commands.Context):
             self._db = await self.pool.acquire(timeout=timeout)
         return self._db
 
-    def acquire(self, *, timeout=None):
+    def acquire(self, *, timeout=300.0):
         """Acquires a database connection from the pool. e.g. ::
 
             async with ctx.acquire():

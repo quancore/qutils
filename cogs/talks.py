@@ -201,7 +201,7 @@ class _Talks(commands.Cog):
 
         if question:
             try:
-                theme_id = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=60)
+                theme_id, _ = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=60)
             except asyncio.TimeoutError as e:
                 raise e
             else:
@@ -278,7 +278,7 @@ class _Talks(commands.Cog):
                    f"{guild_text}"
 
         try:
-            guild = await helpers.get_multichoice_answer(self.bot, ctx, guild_dict, question)
+            guild, _ = await helpers.get_multichoice_answer(self.bot, ctx, guild_dict, question)
         except asyncio.TimeoutError:
             return await channel.send("The timer for you to provide the choice is timeout. Please "
                                       "give your confession again to be able to provide another.")
@@ -425,7 +425,7 @@ class _Talks(commands.Cog):
 
         question = 'Please type the row number for check details otherwise type c'
         try:
-            selected_talk_id = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=60)
+            selected_talk_id, _ = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=60)
         except asyncio.TimeoutError:
             return await ctx.send('Please type in 60 seconds next time.')
 
@@ -527,7 +527,7 @@ class _Talks(commands.Cog):
 
         question = 'Please type the row number for check details otherwise type c'
         try:
-            selected_talk_id = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=60)
+            selected_talk_id, _ = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=60)
         except asyncio.TimeoutError:
             return await ctx.send('Please type in 60 seconds next time.')
 

@@ -1,15 +1,20 @@
 import logging
 import typing
 import datetime
+from fuzzywuzzy import process
+from collections import defaultdict
+
+
 
 from discord import Embed, TextChannel, Color, Role, Member, utils
 from discord.ext import commands
 from utils.formats import CustomEmbed
+from utils import helpers
 
 
 from utils.formats import colors
 from config import ACTIVITY_ROLE_NAME, GENDER_ROLE_NAMES, STRANGER_ROLE_NAME, \
-    STATS_ROLES, VALID_STATS_ROLES, LEADER_ROLE_NAME, BOT_ROLE_NAME, ROLE_HIERARCHY
+    STATS_ROLES, VALID_STATS_ROLES, LEADER_ROLE_NAME, BOT_ROLE_NAME, ROLE_HIERARCHY, short_delay
 
 log = logging.getLogger('root')
 
@@ -93,55 +98,88 @@ class General(commands.Cog):
                       aliases=['u'])
     @commands.has_any_role(*VALID_STATS_ROLES)
     @commands.guild_only()
-    async def user(self, ctx, members: commands.Greedy[Member], *, size: typing.Optional[str] = 's'):
-        if not members:
+    # async def user(self, ctx, members: commands.Greedy[Member], *, size: typing.Optional[str] = 's'):
+    async def user(self, ctx, *, raw_member):
+        sent_messages = []
+        try:
+            member = await commands.MemberConverter().convert(ctx, raw_member)
+        except commands.MemberNotFound:
+            member = None
+
+        if member is None:
+            threshold = 0.8
+            if isinstance(raw_member, str):
+                member_dict = defaultdict(list)
+                for _member in ctx.guild.members:
+                    member_dict[_member.name].append(_member)
+                matching = process.extract(raw_member, list(member_dict.keys()), limit=3)
+                if matching:
+                    matching_strings = [str_ for str_, score in matching if score > threshold]
+                    if matching_strings:
+                        try:
+                            matched_member_name = await ctx.disambiguate(matching_strings)
+                        except ValueError as err:
+                            return await ctx.send(err, delete_after=short_delay)
+
+                        if matched_member_name:
+                            members = member_dict.get(matched_member_name)
+                            if len(members) > 1:
+                                try:
+                                    member_id = await ctx.disambiguate([f"{m.name} ({m.id})" for m in members])
+                                except ValueError as err:
+                                    return await ctx.send(err, delete_after=short_delay)
+
+                                member = await helpers.get_member_by_id(ctx.guild, member_id)
+                            elif len(members) == 1:
+                                member = members[0]
+        if member is None:
             raise commands.BadArgument(f'There is no member with given name')
 
-        size_dict = {'s': 1024, 'm': 2048, 'l': 4096}
-        content_size = size_dict.get(size, None)
+        # size_dict = {'s': 1024, 'm': 2048, 'l': 4096}
+        # content_size = size_dict.get(size, None)
 
-        if content_size is None:
-            raise commands.BadArgument('Size argument is not valid, please give: s, m or l')
+        # if content_size is None:
+        #     raise commands.BadArgument('Size argument is not valid, please give: s, m or l')
 
         now = datetime.datetime.now()
-        for member in members:
-            avatar_url = str(member.avatar_url_as(size=content_size, static_format='webp'))
-            top_role = member.top_role
-            days_created = (now - member.created_at).days
-            days_joined = (now - member.joined_at).days
-            role_upgrade_text = None
-            if top_role.name in ROLE_HIERARCHY:
-                next_role, days_total = ROLE_HIERARCHY[top_role.name]
-                days_left = days_total - days_joined
-                role_upgrade_text = f'{top_role.name}  ➡️ {next_role}'
-                if days_left >= 0:
-                    role_upgrade_text += f' **({days_left} days left)**'
-                else:
-                    role_upgrade_text += f'**(have to update immediately!!!)**'
+        # avatar_url = str(member.avatar_url_as(size=content_size, static_format='webp'))
+        avatar_url = str(member.avatar_url_as(static_format='webp'))
+        top_role = member.top_role
+        days_created = (now - member.created_at).days
+        days_joined = (now - member.joined_at).days
+        role_upgrade_text = None
+        if top_role.name in ROLE_HIERARCHY:
+            next_role, days_total = ROLE_HIERARCHY[top_role.name]
+            days_left = days_total - days_joined
+            role_upgrade_text = f'{top_role.name}  ➡️ {next_role}'
+            if days_left >= 0:
+                role_upgrade_text += f' **({days_left} days left)**'
+            else:
+                role_upgrade_text += f'**(have to update immediately!!!)**'
 
-            member_text = f"**Created**: {member.created_at.strftime('%Y-%m-%d %H:%M:%S')} **({days_created} days)**\n" \
-                          f"**Joined**: {member.joined_at.strftime('%Y-%m-%d %H:%M:%S')} **({days_joined} days)**\n" \
-                          f"**Top role**: {top_role.name}\n"\
-                          f"**Roles**: {', '.join([role.name for role in member.roles if role.name != '@everyone'])}\n" \
-                          f"**Upgrade**: {'-' if role_upgrade_text is None else role_upgrade_text}\n" \
-                          f"**Status**: {('Do not disturb' if (str(member.status) == 'dnd') else str(member.status))}\n" \
-                          # f"**Full avatar URL: **: {avatar_url}"
+        member_text = f"**Created**: {member.created_at.strftime('%Y-%m-%d %H:%M:%S')} **({days_created} days)**\n" \
+                      f"**Joined**: {member.joined_at.strftime('%Y-%m-%d %H:%M:%S')} **({days_joined} days)**\n" \
+                      f"**Top role**: {top_role.name}\n"\
+                      f"**Roles**: {', '.join([role.name for role in member.roles if role.name != '@everyone'])}\n" \
+                      f"**Upgrade**: {'-' if role_upgrade_text is None else role_upgrade_text}\n" \
+                      f"**Status**: {('Do not disturb' if (str(member.status) == 'dnd') else str(member.status))}\n" \
+                      # f"**Full avatar URL: **: {avatar_url}"
 
-            embed_dict = {"title": "Avatar",
-                          "author": {
-                              "name": f"{member.name}",
-                              "icon_url": avatar_url
-                          },
-                          "image": {"url": avatar_url},
-                          'fields': [
-                              {'name': "Information", 'value': member_text, 'inline': False},
-                          ],
-                          }
+        embed_dict = {"title": "Avatar",
+                      "author": {
+                          "name": f"{member.name}",
+                          "icon_url": avatar_url
+                      },
+                      "image": {"url": avatar_url},
+                      'fields': [
+                          {'name': "Information", 'value': member_text, 'inline': False},
+                      ],
+                      }
 
-            e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name,
-                                      avatar_url=self.bot.user.avatar_url,
-                                      is_thumbnail=False)
-            await ctx.send(embed=e.to_embed())
+        e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name,
+                                  avatar_url=self.bot.user.avatar_url,
+                                  is_thumbnail=False)
+        await ctx.send(embed=e.to_embed())
 
     @commands.group(name='stats', help='Command group for getting several statistics of the server',
                     hidden=True, aliases=['s'])

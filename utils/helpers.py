@@ -1,11 +1,12 @@
 import datetime
 from typing import Optional, Union, Callable, Iterable
 import asyncio
+import typing
 
 
 from discord import abc
 from discord import Guild, Role, Client, NotFound, Forbidden, \
-    HTTPException, InvalidData, Member, utils, TextChannel
+    HTTPException, InvalidData, Member, utils, TextChannel, DMChannel, Embed
 from discord.ext import commands
 
 from config import activity_min_day
@@ -112,6 +113,11 @@ async def get_inactive_members(guild, included_roles: Iterable, activity_role, e
 
 
 # ******* Util functions ************
+def prepare_message_mention(guild_id, channel_id, message_id):
+    """ Build guild message mention """
+    return f"https://discordapp.com/channels/{guild_id}/{channel_id}/{message_id}"
+
+
 def representsInt(s):
     """ Try to cast given value to integer and return if possible else return -1"""
     if s is None:
@@ -180,4 +186,79 @@ async def cleanup_messages(channel: TextChannel, messages: Iterable[abc.Snowflak
         for nav in navigators:
             nav.kill()
 
+
+async def prompt(bot: commands.Bot, channel: typing.Union[DMChannel, TextChannel], message: str, *,
+                 timeout: typing.Optional[float] = 60.0, delete_after: bool = True,
+                 author_id: typing.Optional[int] = None, embed: typing.Optional[Embed] = None):
+    """An interactive reaction confirmation dialog.
+
+    Parameters
+    -----------
+    bot: commands.Bot
+        Discord.py Bot class
+    channel: typing.Union[DMChannel, TextChannel]
+        Channel to send the message.
+    message: str
+        The message to show along with the prompt.
+    timeout: typing.Optional[float]
+        How long to wait before returning.
+    delete_after: bool
+        Whether to delete the confirmation message after we're done.
+    author_id: Optional[int]
+        The member who should respond to the prompt. Defaults to the author of the
+        Context's message.
+    embed: Optional[Discord.embed]
+        Optional Discord Embed message.
+
+    Returns
+    --------
+    Optional[bool]
+        ``True`` if explicit confirm,
+        ``False`` if explicit deny,
+        ``None`` if deny due to timeout
+    """
+
+    if channel.guild is not None and not channel.permissions_for(channel.guild.me).add_reactions:
+        raise RuntimeError('Bot does not have Add Reactions permission.')
+
+    fmt = f'{message}\n\nReact with \N{WHITE HEAVY CHECK MARK} to confirm or \N{CROSS MARK} to deny.'
+
+    msg = await channel.send(fmt, embed=embed)
+
+    confirm = None
+
+    def check(payload):
+        nonlocal confirm
+
+        if payload.user_id == bot.user.id:
+            return False
+        if payload.message_id != msg.id:
+            return False
+        if author_id and payload.user_id != author_id:
+            return False
+
+        codepoint = str(payload.emoji)
+
+        if codepoint == '\N{WHITE HEAVY CHECK MARK}':
+            confirm = True
+            return True
+        elif codepoint == '\N{CROSS MARK}':
+            confirm = False
+            return True
+
+        return False
+
+    for emoji in ('\N{WHITE HEAVY CHECK MARK}', '\N{CROSS MARK}'):
+        await msg.add_reaction(emoji)
+
+    try:
+        response = await bot.wait_for('raw_reaction_add', check=check, timeout=timeout)
+    except asyncio.TimeoutError:
+        confirm, response = None, None
+
+    try:
+        if delete_after:
+            await msg.delete()
+    finally:
+        return confirm, response
 

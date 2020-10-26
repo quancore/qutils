@@ -19,7 +19,8 @@ import typing
 from discord import File, TextChannel, Guild, InvalidArgument, Forbidden, HTTPException, RawMessageDeleteEvent, RawBulkMessageDeleteEvent
 
 import logging
-from config import ADMIN_CHANNEL_ID, CONFESSION_CHANNEL_ID, GUILD_ID, message_timeout, warn_limit, command_cooldown, TIER5
+from config import ADMIN_CHANNEL_ID, CONFESSION_CHANNEL_ID, GUILD_ID, \
+    message_timeout, warn_limit, command_cooldown, short_delay, mid_delay, long_delay, TIER5
 from utils import db, helpers
 from utils.formats import CustomEmbed
 from libneko import pag
@@ -91,43 +92,6 @@ class Confession(commands.Cog):
         self.currently_confessing = set()  # A set rather than a fetch_schedule because it uses a hash table
 
     # ********** Events **************
-    async def cog_command_error(self, ctx: commands.Context, error):
-        """
-        Handles errors for this particular cog
-        """
-        err_msg = None
-        if isinstance(error, commands.NoPrivateMessage):
-            err_msg = f"In a reason, you could not run commands in DM. {error}"
-
-        if isinstance(error, commands.BotMissingPermissions):
-            err_msg = f"I'm missing the `{error.missing_perms[0]}` permission " \
-                      f"that's required for me to run this command."
-
-        elif isinstance(error, commands.MissingPermissions):
-            # if ctx.author.id in self.bot.config['owners']:
-            #     await ctx.reinvoke()
-            #     return
-            err_msg = f"You need to have the `{error.missing_perms[0]}` permission to run this command."
-
-        elif isinstance(error, commands.MissingRequiredArgument):
-            err_msg = f"You're missing the `{error.param.name}` argument, which is required to run this command."
-
-        elif isinstance(error, commands.BadArgument):
-            err_msg = f"You're running this command incorrectly - {error}. Please check the documentation."
-
-        elif isinstance(error, commands.UserInputError):
-            err_msg = f"User give wrong input:  {error}."
-
-        elif isinstance(error, commands.CommandOnCooldown):
-            err_msg = 'This command is rate-limited, meaning you cannot use the command too frequently.\n' \
-                       'Please try again in {:.2f}s'.format(error.retry_after)
-
-        if err_msg is not None:
-            log.exception(err_msg)
-            return await ctx.send(err_msg)
-
-        raise error
-
     @commands.Cog.listener()
     async def on_ready(self):
         """ Schedule initial works for confession cog """
@@ -481,7 +445,6 @@ class Confession(commands.Cog):
     @commands.dm_only()
     async def create(self, ctx):
         """ Create a confession for given server """
-
         await self.bot.wait_until_ready()
 
         author = ctx.author
@@ -516,7 +479,7 @@ class Confession(commands.Cog):
                    f"{guild_text}"
 
         try:
-            guild = await helpers.get_multichoice_answer(self.bot, ctx, guild_dict, question)
+            guild, _ = await helpers.get_multichoice_answer(self.bot, ctx, guild_dict, question)
         except asyncio.TimeoutError:
             self.currently_confessing.discard(author.id)
             return await channel.send("The timer for you to provide the choice is timeout. Please "
@@ -652,7 +615,8 @@ class Confession(commands.Cog):
         guild = ctx.guild
         # insert given channel id with server id to DB and update the instance server dict
         await self.insert_and_update_servers(guild.id, channel.id)
-        await ctx.send(f'Confession channel set to {channel.mention} for server **{guild.name}**')
+        await ctx.send(f'Confession channel set to {channel.mention} for server **{guild.name}**',
+                       delete_after=short_delay)
 
     @confess.command(name='get_channel', help='Get confession channel if it has been set.',
                      usage='', aliases=['get', 'g'])
@@ -663,16 +627,16 @@ class Confession(commands.Cog):
         if channel_id:
             channel = await helpers.get_channel_by_id(self.bot, guild, channel_id)
             if channel:
-                await ctx.send(f'Confession channel for **{guild.name}** is **{channel.mention}**')
+                await ctx.send(f'Confession channel for **{guild.name}** is **{channel.mention}**', delete_after=short_delay)
             else:
                 await ctx.send(f'Confession channel for **{guild.name}** has been set with channel ID {channel_id}'
                                f'however the channel is no longer reachable, maybe deleted or maybe restricted.\n'
-                               f'Please use **set_channel** command to set a valid text channel.')
+                               f'Please use **set_channel** command to set a valid text channel.', delete_after=short_delay)
 
         else:
             await ctx.send(f'Confession channel has not been set for **{guild.name}**.\n'
                            f'Please use **set_channel** command to set a confession channel'
-                           f'if you have required privileges.')
+                           f'if you have required privileges.', delete_after=short_delay)
 
     @confess.command(name='fetchall', help='Fetch all the confession logs from DB for this guild',
                      usage='<is_deleted>\n\n'
@@ -697,37 +661,44 @@ class Confession(commands.Cog):
                     AND is_deleted=$2
                     ORDER BY timestamp"""
 
-        guild = ctx.guild
-        records = await ctx.db.fetch(query, guild.id, is_deleted)
-        if len(records) == 0:
-            return await ctx.send('No results found...')
-
-        nav = pag.EmbedNavigatorFactory(max_lines=20)
-        nav.add_line('**__Confession logs__**')
-        row_num_to_id = {}
-        for index, (_id, ban_code, _, _, _, date, text, _, _, ban_status, is_deleted) in enumerate(records):
-            shorten = textwrap.shorten(text, width=150)
-            line = f'**{index+1}) ID**: {_id} | **BCode**: {ban_code} | **Deleted?**: {is_deleted} | ' \
-                   f'**{date}** -> {shorten}'
-            row_num_to_id[index+1] = _id
-            nav.add_line(line)
-            nav.add_line('**-----------------------------**')
-
-        nav.start(ctx=ctx)
-
-        question = 'Please type the row number for check details otherwise type c'
+        sent_messages, sent_navs = [ctx.message], []
         try:
-            choice = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=60)
-        except asyncio.TimeoutError as e:
-            return await ctx.send('Please type in 60 seconds next time.')
+            guild = ctx.guild
+            records = await ctx.db.fetch(query, guild.id, is_deleted)
+            if len(records) == 0:
+                return await ctx.send('No results found...', delete_after=short_delay)
 
-        if choice is None:
-            return await ctx.send('Command has been cancelled.')
+            nav = pag.EmbedNavigatorFactory(max_lines=20)
+            nav.add_line('**__Confession logs__**')
+            row_num_to_id = {}
+            for index, (_id, ban_code, _, _, _, date, text, _, _, ban_status, is_deleted) in enumerate(records):
+                shorten = textwrap.shorten(text, width=150)
+                line = f'**{index+1}) ID**: {_id} | **BCode**: {ban_code} | **Deleted?**: {is_deleted} | ' \
+                       f'**{date}** -> {shorten}'
+                row_num_to_id[index+1] = _id
+                nav.add_line(line)
+                nav.add_line('**-----------------------------**')
 
-        record = next((record for record in records if record['confession_id'] == choice), None)
-        url = f'URL: <https://discordapp.com/channels/{guild.id}/{record["channel_id"]}/{record["confession_id"]}>'
-        e = await self._create_embed(record, is_detailed=True)
-        await ctx.send(url, embed=e.to_embed())
+            emb_nav = nav.build(ctx=ctx)
+            emb_nav.start()
+            sent_navs.append(emb_nav)
+
+            question = 'Please type the row number for check details otherwise type c'
+            try:
+                choice, msg = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=short_delay)
+                sent_messages.extend(msg)
+            except asyncio.TimeoutError as e:
+                return await ctx.send('Please type in 60 seconds next time.')
+
+            if choice is None:
+                return await ctx.send('Command has been cancelled.', delete_after=short_delay)
+
+            record = next((record for record in records if record['confession_id'] == choice), None)
+            url = f'URL: <https://discordapp.com/channels/{guild.id}/{record["channel_id"]}/{record["confession_id"]}>'
+            e = await self._create_embed(record, is_detailed=True)
+            await ctx.send(url, embed=e.to_embed())
+        finally:
+            await helpers.cleanup_messages(ctx.channel, sent_messages, navigators=sent_navs, delete_after=mid_delay)
 
     @confess.command(name='fetch', help='Fetch the confessions belongs to a member from DB',
                      usage='', aliases=['f'])
@@ -753,7 +724,7 @@ class Confession(commands.Cog):
 
         records = await ctx.db.fetch(query, user_hexdigest)
         if len(records) == 0:
-            return await ctx.send('No confession has been found...')
+            return await ctx.send('No confession has been found...', delete_after=short_delay)
 
         # Get guilds for that user
         guild_ids = list({record['guild_id'] for record in records})
@@ -771,7 +742,7 @@ class Confession(commands.Cog):
                    f"{guild_text}"
 
         try:
-            guild = await helpers.get_multichoice_answer(self.bot, ctx, guild_dict, question)
+            guild, _ = await helpers.get_multichoice_answer(self.bot, ctx, guild_dict, question)
         except asyncio.TimeoutError:
             return await channel.send("The timer for you to provide the choice is timeout. Please "
                                       "choose your confession server again to be able to provide another.")
@@ -779,7 +750,7 @@ class Confession(commands.Cog):
             raise err
 
         if guild is None:
-            return await ctx.send('Command has been cancelled.')
+            return await ctx.send('Command has been cancelled.', delete_after=short_delay)
 
         # Filter retrieved confessions using guild id
         records = [record for record in records if record['guild_id'] == guild.id]
@@ -799,12 +770,12 @@ class Confession(commands.Cog):
 
         question = 'Please type the row number for check details otherwise type c'
         try:
-            choice = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=60)
+            choice, _ = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=60)
         except asyncio.TimeoutError as e:
-            return await ctx.send('Please type in 60 seconds next time.')
+            return await ctx.send('Please type in 60 seconds next time.', delete_after=short_delay)
 
         if choice is None:
-            return await ctx.send('Command has been cancelled.')
+            return await ctx.send('Command has been cancelled.', delete_after=short_delay)
 
         record = next((record for record in records if record['confession_id'] == choice), None)
         e = await self._create_embed(record, is_detailed=False)
@@ -835,13 +806,13 @@ class Confession(commands.Cog):
 
         records = await ctx.db.fetch(query, user_hexdigest)
         if len(records) == 0:
-            return await ctx.send('No confession has been found...')
+            return await ctx.send('No confession has been found...', delete_after=short_delay)
 
         # Get guilds for that user
         guild_ids = list({record['guild_id'] for record in records})
         guilds = [await helpers.get_guild_by_id(self.bot, guild_id) for guild_id in guild_ids]
         if len(guilds) == 0:
-            return await ctx.send('There is no server can be reachable at that moment.')
+            return await ctx.send('There is no server can be reachable at that moment.', delete_after=short_delay)
 
         guild_dict = {index + 1: guild for index, guild in enumerate(guilds)}
         guild_text = '\n'.join([f'**{index}) {guild.name}**' for index, guild in guild_dict.items()])
@@ -853,15 +824,16 @@ class Confession(commands.Cog):
                    f"{guild_text}"
 
         try:
-            guild = await helpers.get_multichoice_answer(self.bot, ctx, guild_dict, question)
+            guild, _ = await helpers.get_multichoice_answer(self.bot, ctx, guild_dict, question)
         except asyncio.TimeoutError:
             return await channel.send("The timer for you to provide the choice is timeout. Please "
-                                      "choose your confession server again to be able to provide another.")
+                                      "choose your confession server again to be able to provide another.",
+                                      delete_after=short_delay)
         except commands.UserInputError as err:
             raise err
 
         if guild is None:
-            return await ctx.send('Command has been cancelled.')
+            return await ctx.send('Command has been cancelled.', delete_after=short_delay)
 
         # Check user banned from that guild
         res = await self._fetch_with_user_code(ctx, guild.id, user_hexdigest)
@@ -869,7 +841,7 @@ class Confession(commands.Cog):
             return await channel.send(f"You've been banned from **{guild.name}** to delete a confession.\n"
                                       f"**Confession ban code you get banned**: {res['confession_ban_code']}.\n"
                                       f"**Ban date**: {res['timestamp'].strftime('%Y-%m-%d')} \n"
-                                      f"**Reason**: {res['reason']}")
+                                      f"**Reason**: {res['reason']}", delete_after=short_delay)
 
         # Filter retrieved confessions using guild id
         records = [record for record in records if record['guild_id'] == guild.id]
@@ -890,12 +862,12 @@ class Confession(commands.Cog):
         question = 'Please type the row number for delete confession otherwise type c\n' \
                    'THE CONFESSION WILL BE DELETED IRREVOCABLY!!!'
         try:
-            choice = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=60)
+            choice, _ = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_id, question, timeout=short_delay)
         except asyncio.TimeoutError as e:
-            return await ctx.send('Please type in 60 seconds next time.')
+            return await ctx.send('Please type in 60 seconds next time.', delete_after=short_delay)
 
         if choice is None:
-            return await ctx.send('Command has been cancelled.')
+            return await ctx.send('Command has been cancelled.', delete_after=short_delay)
 
         record = next((record for record in records if record['confession_id'] == choice), None)
         # Remove the confession from DB
@@ -917,7 +889,7 @@ class Confession(commands.Cog):
                     await msg.delete()
 
         e = await self._create_embed(record, is_detailed=False)
-        await ctx.send('The following confession has been deleted.', embed=e.to_embed())
+        await ctx.send('The following confession has been deleted.', embed=e.to_embed(), delete_after=short_delay)
 
     async def _ban(self, ctx, ban_code, reason, record=None):
         """ Ban method """
@@ -971,16 +943,18 @@ class Confession(commands.Cog):
                                           f"**Banned by**: {ctx.author.mention} \n"
                                           f"Your identity is still a secret. Don't worry about it too much.\n"
                                           f"Here is the confession caused to ban:",
-                                          embed=e)
+                                          embed=e, delete_after=short_delay)
                 except Exception:
                     pass
 
-                return await ctx.send("That user has been banned from sending in more confessions on your server.")
+                return await ctx.send("That user has been banned from sending in more confessions on your server.",
+                                      delete_after=short_delay)
             else:
-                return await ctx.send("Given user has not been found to ban.")
+                return await ctx.send("Given user has not been found to ban.", delete_after=short_delay)
         else:
             return await ctx.send("Given user has already been banned. "
-                                  "If you have permissions, you can check banned users via **fetchban** command.")
+                                  "If you have permissions, you can check banned users via **fetchban** command.",
+                                  delete_after=short_delay)
 
     @confess.command(name='ban', help='Ban a member to send confession',
                      usage='<ban_code> <reason> \n Use " " to define reason longer than one word',
@@ -1008,16 +982,16 @@ class Confession(commands.Cog):
             is_already_warned = any([True for record in warn_records if ban_code == record['confession_ban_code']])
 
             if is_already_warned:
-                return await ctx.send('The member has already been warned for this confession')
+                return await ctx.send('The member has already been warned for this confession', delete_after=short_delay)
 
             if len(warn_records) == warn_limit:
-                return await ctx.send(f'The member has already reached warn limits: {warn_limit}')
+                return await ctx.send(f'The member has already reached warn limits: {warn_limit}', delete_after=short_delay)
 
         if len(record) == 0:
-            return await ctx.send('There is no confession for this server with given ban code')
+            return await ctx.send('There is no confession for this server with given ban code', delete_after=short_delay)
 
         if record['user_banned']:
-            return await ctx.send('The user has already banned from confession server')
+            return await ctx.send('The user has already banned from confession server', delete_after=short_delay)
 
         # get number of remaining warning for this user and check if it get banned
         num_warned = len(warn_records) + 1
@@ -1026,9 +1000,10 @@ class Confession(commands.Cog):
         if get_banned:
             confirm = await ctx.prompt(f'The user has been reached warn limit: {warn_limit}\n '
                                        f'If you give this warning, he/she will be **BANNED!!** from sending confession.'
-                                       f'Are you sure you want to warn?')
+                                       f'Are you sure you want to warn?', timeout=short_delay,
+                                       delete_after=True, user_id=ctx.author.id)
             if not confirm:
-                return await ctx.send('Operation has been cancelled')
+                return await ctx.send('Operation has been cancelled', delete_after=short_delay)
 
         # Add user to warned user for this guild
         query = 'INSERT INTO warns VALUES ($1, $2, $3, $4, $5, $6, $7)'
@@ -1059,7 +1034,7 @@ class Confession(commands.Cog):
 
             try:
                 await channel.send('A member has been warned for the following confession.',
-                                   embed=e, delete_after=600)
+                                   embed=e, delete_after=long_delay)
             except Exception as err:
                 log.exception(f'Member warning announcement cannot send in warning op: \n {err}')
 
@@ -1074,12 +1049,12 @@ class Confession(commands.Cog):
                                        f"**Warned by**: {ctx.author.mention} \n"
                                        f"Your identity is still a secret. Don't worry about it too much.\n"
                                        f"Here is the confession caused to warn:",
-                                       embed=e)
+                                       embed=e, delete_after=short_delay)
             except Exception as err:
                 log.exception(f'The user to send pm message in warn operation not found:\n {err}')
 
         else:
-            await ctx.send("Given user has not been found to warn.")
+            await ctx.send("Given user has not been found to warn.", delete_after=short_delay)
 
         if get_banned:
             ban_reason = f'Banned after {warn_limit} warnings'
@@ -1098,10 +1073,11 @@ class Confession(commands.Cog):
         res = await self._fetch_with_user_code(ctx, guild.id, user_hash_code)
         if res is None:
             return await ctx.send("That user has not been banned from sending confession in this server"
-                                  " or you have given wrong user hash code.")
+                                  " or you have given wrong user hash code.", delete_after=short_delay)
 
         await ctx.db.execute(query, guild.id, user_hash_code)
-        await ctx.send(f"Member with **hash code: {user_hash_code}** has been unbanned for **{guild.name}**.")
+        await ctx.send(f"Member with **hash code: {user_hash_code}** has been unbanned for **{guild.name}**.",
+                       delete_after=short_delay)
 
         # unban in db
         await self._set_ban_status(ctx, guild.id, res['user_hash_id'])
@@ -1110,7 +1086,7 @@ class Confession(commands.Cog):
         member = self._find_member_by_hash_code(guild, user_hash_code)
         if member:
             await member.send(f'Congratulations, you have been unbanned in **{guild.name}**'
-                              f' by {ctx.author.mention}')
+                              f' by {ctx.author.mention}', delete_after=short_delay)
 
         # send the deleted confession to newly set channel instead of the channel in DB
         confession_channel_id = self.confession_servers_map.get(guild.id, None)
@@ -1125,7 +1101,8 @@ class Confession(commands.Cog):
                     confessed_message = await confession_channel.send(embed=e.to_embed())
                 except Exception as e:
                     await confession_channel.send(f"I encountered the error `{e}` "
-                                                  f"trying to send your deleted confession to confession channel:/")
+                                                  f"trying to send your deleted confession to confession channel:/",
+                                                  delete_after=short_delay)
                 else:
                     # Set the confession deletion status to False
                     await self._set_deletion_status(guild.id, confession['confession_id'], deletion_status=False)
@@ -1141,6 +1118,7 @@ class Confession(commands.Cog):
                      usage='', aliases=['fb'])
     @commands.has_permissions(manage_messages=True, ban_members=True)
     @commands.guild_only()
+    @commands.is_owner()
     async def fetch_ban(self, ctx):
         query = """SELECT user_hash_id,
                     guild_id,
@@ -1150,36 +1128,43 @@ class Confession(commands.Cog):
                     FROM bannedusers
                     WHERE guild_id = $1"""
 
-        guild = ctx.guild
-        records = await ctx.db.fetch(query, guild.id)
-        if len(records) == 0:
-            return await ctx.send('No results found...')
-
-        nav = pag.EmbedNavigatorFactory(max_lines=20)
-        nav.add_line('**__Banned Users__**')
-        row_num_to_code = {}
-        for index, (_id, guild_id, confession_ban_code, date, reason) in enumerate(records):
-            line = f'**{index+1}) User Hash code**: {_id} | **Guild ID:** {guild_id}' \
-                   f' **BCode**: {confession_ban_code} | **{date}** -> {reason}'
-            row_num_to_code[index+1] = confession_ban_code
-            nav.add_line(line)
-            nav.add_line('**-----------------------------**')
-
-        nav.start(ctx=ctx)
-
-        question = 'Please type the row number for check details otherwise type c'
+        sent_messages, sent_navs = [ctx.message], []
         try:
-            choice = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_code, question, timeout=60)
-        except asyncio.TimeoutError as e:
-            return await ctx.send('Please type in 60 seconds next time.')
+            guild = ctx.guild
+            records = await ctx.db.fetch(query, guild.id)
+            if len(records) == 0:
+                return await ctx.send('No results found...')
 
-        if choice is None:
-            return await ctx.send('Command has been cancelled.')
+            nav = pag.EmbedNavigatorFactory(max_lines=20)
+            nav.add_line('**__Banned Users__**')
+            row_num_to_code = {}
+            for index, (_id, guild_id, confession_ban_code, date, reason) in enumerate(records):
+                line = f'**{index+1}) User Hash code**: {_id} | **Guild ID:** {guild_id}' \
+                       f' **BCode**: {confession_ban_code} | **{date}** -> {reason}'
+                row_num_to_code[index+1] = confession_ban_code
+                nav.add_line(line)
+                nav.add_line('**-----------------------------**')
 
-        ban_record = next((record for record in records if record['confession_ban_code'] == choice), None)
-        record = await self._fetch_with_ban_code(ctx, guild.id, ban_record['confession_ban_code'])
-        e = await self._create_embed(record)
-        await ctx.send(embed=e.to_embed())
+            emb_nav = nav.build(ctx=ctx)
+            emb_nav.start()
+            sent_navs.append(emb_nav)
+
+            question = 'Please type the row number for check details otherwise type c'
+            try:
+                choice, msg = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_code, question, timeout=short_delay)
+                sent_messages.extend(msg)
+            except asyncio.TimeoutError as e:
+                return await ctx.send('Please type in 60 seconds next time.', delete_after=short_delay)
+
+            if choice is None:
+                return await ctx.send('Command has been cancelled.', delete_after=short_delay)
+
+            ban_record = next((record for record in records if record['confession_ban_code'] == choice), None)
+            record = await self._fetch_with_ban_code(ctx, guild.id, ban_record['confession_ban_code'])
+            e = await self._create_embed(record)
+            await ctx.send(embed=e.to_embed(), delete_after=short_delay)
+        finally:
+            await helpers.cleanup_messages(ctx.channel, sent_messages, navigators=sent_navs, delete_after=short_delay)
 
     @confess.command(name='fetchwarn', help='Fetch warned users for confession',
                      usage='', aliases=['fw'])
@@ -1197,36 +1182,42 @@ class Confession(commands.Cog):
                     FROM warns
                     WHERE guild_id = $1"""
 
-        guild = ctx.guild
-        records = await ctx.db.fetch(query, guild.id)
-        if len(records) == 0:
-            return await ctx.send('No results found...')
-
-        nav = pag.EmbedNavigatorFactory(max_lines=20)
-        nav.add_line('**__Warned Users__**')
-        row_num_to_code = {}
-        for index, (confession_ban_code, confession_id, _id, guild_id, _, date, reason) in enumerate(records):
-            line = f'**{index+1}) User Hash code**: {_id} | **Guild ID:** {guild_id}' \
-                   f' **BCode**: {confession_ban_code} | **{date}** -> {reason}'
-            row_num_to_code[index+1] = confession_ban_code
-            nav.add_line(line)
-            nav.add_line('**-----------------------------**')
-
-        nav.start(ctx=ctx)
-
-        question = 'Please type the row number for check details otherwise type c'
+        sent_messages, sent_navs = [ctx.message], []
         try:
-            choice = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_code, question, timeout=60)
-        except asyncio.TimeoutError as e:
-            return await ctx.send('Please type in 60 seconds next time.')
+            guild = ctx.guild
+            records = await ctx.db.fetch(query, guild.id)
+            if len(records) == 0:
+                return await ctx.send('No results found...', delete_after=short_delay)
 
-        if choice is None:
-            return await ctx.send('Command has been cancelled.')
+            nav = pag.EmbedNavigatorFactory(max_lines=20)
+            nav.add_line('**__Warned Users__**')
+            row_num_to_code = {}
+            for index, (confession_ban_code, confession_id, _id, guild_id, _, date, reason) in enumerate(records):
+                line = f'**{index+1}) User Hash code**: {_id} | **Guild ID:** {guild_id}' \
+                       f' **BCode**: {confession_ban_code} | **{date}** -> {reason}'
+                row_num_to_code[index+1] = confession_ban_code
+                nav.add_line(line)
+                nav.add_line('**-----------------------------**')
 
-        warn_record = next((record for record in records if record['confession_ban_code'] == choice), None)
-        record = await self._fetch_with_ban_code(ctx, guild.id, warn_record['confession_ban_code'])
-        e = await self._create_embed(record)
-        await ctx.send(embed=e.to_embed())
+            emb_nav = nav.build(ctx=ctx)
+            emb_nav.start()
+            sent_navs.append(emb_nav)
+
+            question = 'Please type the row number for check details otherwise type c'
+            try:
+                choice, msg = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_code, question, timeout=short_delay)
+            except asyncio.TimeoutError:
+                return await ctx.send('Please type in 60 seconds next time.', delete_after=short_delay)
+
+            if choice is None:
+                return await ctx.send('Command has been cancelled.')
+
+            warn_record = next((record for record in records if record['confession_ban_code'] == choice), None)
+            record = await self._fetch_with_ban_code(ctx, guild.id, warn_record['confession_ban_code'])
+            e = await self._create_embed(record)
+            await ctx.send(embed=e.to_embed(), delete_after=short_delay)
+        finally:
+            await helpers.cleanup_messages(ctx.channel, sent_messages, navigators=sent_navs, delete_after=short_delay)
 
     async def _fetch_all_user_warns(self, guild_id):
         """ Fetch all user warns for given guild """
@@ -1266,39 +1257,46 @@ class Confession(commands.Cog):
     @commands.guild_only()
     @commands.is_owner()
     async def fetch_u_warn(self, ctx):
-        guild = ctx.guild
-        records = await self._fetch_all_user_warns(guild.id)
-        if len(records) == 0:
-            return await ctx.send('No results found...')
-
-        nav = pag.EmbedNavigatorFactory(max_lines=20)
-        nav.add_line('**__Warned Users by count__**')
-        row_num_to_code = {}
-        for index, (count, user_hash_id) in enumerate(records):
-            line = f'**{index+1})** ID: **{user_hash_id}**  | **{count}**'
-            row_num_to_code[index+1] = user_hash_id
-            nav.add_line(line)
-
-        nav.start(ctx=ctx)
-
-        question = 'Please type the row number for check details otherwise type c'
+        sent_messages, sent_navs = [ctx.message], []
         try:
-            choice = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_code, question, timeout=60)
-        except asyncio.TimeoutError as e:
-            return await ctx.send('Please type in 60 seconds next time.')
+            guild = ctx.guild
+            records = await self._fetch_all_user_warns(guild.id)
+            if len(records) == 0:
+                return await ctx.send('No results found...', delete_after=short_delay)
 
-        if choice is None:
-            return await ctx.send('Command has been cancelled.')
+            nav = pag.EmbedNavigatorFactory(max_lines=20)
+            nav.add_line('**__Warned Users by count__**')
+            row_num_to_code = {}
+            for index, (count, user_hash_id) in enumerate(records):
+                line = f'**{index+1})** ID: **{user_hash_id}**  | **{count}**'
+                row_num_to_code[index+1] = user_hash_id
+                nav.add_line(line)
 
-        correct_record = next((record for record in records if record['user_hash_id'] == choice), None)
+            emb_nav = nav.build(ctx=ctx)
+            emb_nav.start()
+            sent_navs.append(emb_nav)
 
-        records = await self._fetch_user_warns(guild.id, correct_record['user_hash_id'])
-        if len(records) == 0:
-            raise ValueError('The warning records does not match with confessions records')
+            question = 'Please type the row number for check details otherwise type c'
+            try:
+                choice, msg = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_code, question, timeout=short_delay)
+                sent_messages.extend(msg)
+            except asyncio.TimeoutError:
+                return await ctx.send('Please type in 60 seconds next time.', delete_after=short_delay)
 
-        for record in records:
-            e = await self._create_embed(record)
-            await ctx.send(embed=e.to_embed())
+            if choice is None:
+                return await ctx.send('Command has been cancelled.', delete_after=short_delay)
+
+            correct_record = next((record for record in records if record['user_hash_id'] == choice), None)
+
+            records = await self._fetch_user_warns(guild.id, correct_record['user_hash_id'])
+            if len(records) == 0:
+                raise ValueError('The warning records does not match with confessions records')
+
+            for record in records:
+                e = await self._create_embed(record)
+                await ctx.send(embed=e.to_embed(), delete_after=short_delay)
+        finally:
+            await helpers.cleanup_messages(ctx.channel, sent_messages, navigators=sent_navs, delete_after=short_delay)
 
     @confess.command(name='decrypt', hidden=True,
                      usage='', aliases=['dc'])
@@ -1336,7 +1334,7 @@ class Confession(commands.Cog):
                    f"{guild_text}"
 
         try:
-            guild = await helpers.get_multichoice_answer(self.bot, ctx, guild_dict, question)
+            guild, _ = await helpers.get_multichoice_answer(self.bot, ctx, guild_dict, question)
         except asyncio.TimeoutError:
             return await channel.send("The timer for you to provide the choice is timeout. Please "
                                       "choose your confession server again to be able to provide another.")
@@ -1360,7 +1358,7 @@ class Confession(commands.Cog):
 
         await channel.send(question_2)
         try:
-            ban_code_msg = await self.bot.wait_for("message", check=check_msg, timeout=60)
+            ban_code_msg = await self.bot.wait_for("message", check=check_msg, timeout=short_delay)
         except asyncio.TimeoutError as err:
             return await ctx.send('Timeout error, please enter the code faster than 60 seconds')
         else:
@@ -1447,43 +1445,51 @@ class Confession(commands.Cog):
     @commands.guild_only()
     @commands.is_owner()
     async def fetch_irritation(self, ctx, ban_code: str = None):
-        query = """SELECT *
-                    FROM irritations
-                    WHERE guild_id = $1"""
-        guild = ctx.guild
-        if ban_code is not None:
-            query += ' AND confession_ban_code=$2'
-            records = await ctx.db.fetch(query, guild.id, ban_code)
-        else:
-            records = await ctx.db.fetch(query, guild.id)
-
-        if len(records) == 0:
-            return await ctx.send('No results found...')
-
-        nav = pag.EmbedNavigatorFactory(max_lines=20)
-        nav.add_line('**__Irritations__**')
-        row_num_to_code = {}
-        for index, (_id, bcode, user_hash_id, _, _, date, msg) in enumerate(records):
-            line = f'**{index + 1})** Irritated ID: **{user_hash_id}**  | Confession ID: **{_id}** | \n' \
-                   f'BCode: **{bcode}** | **{date}** --> {msg}'
-            row_num_to_code[index + 1] = _id
-            nav.add_line(line)
-
-        nav.start(ctx=ctx)
-
-        question = 'Please type the row number for check details otherwise type c'
+        sent_messages, sent_navs = [ctx.message], []
         try:
-            choice = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_code, question, timeout=60)
-        except asyncio.TimeoutError as e:
-            return await ctx.send('Please type in 60 seconds next time.')
+            query = """SELECT *
+                        FROM irritations
+                        WHERE guild_id = $1"""
+            guild = ctx.guild
+            if ban_code is not None:
+                query += ' AND confession_ban_code=$2'
+                records = await ctx.db.fetch(query, guild.id, ban_code)
+            else:
+                records = await ctx.db.fetch(query, guild.id)
 
-        if choice is None:
-            return await ctx.send('Command has been cancelled.')
+            if len(records) == 0:
+                return await ctx.send('No results found...')
 
-        correct_record = next((record for record in records if record['confession_id'] == choice), None)
-        record = await self._fetch_with_ban_code(ctx, guild.id, correct_record['confession_ban_code'])
-        e = await self._create_embed(record)
-        await ctx.send(embed=e.to_embed())
+            nav = pag.EmbedNavigatorFactory(max_lines=20)
+            nav.add_line('**__Irritations__**')
+            row_num_to_code = {}
+            for index, (_id, bcode, user_hash_id, _, _, date, msg) in enumerate(records):
+                line = f'**{index + 1})** Irritated ID: **{user_hash_id}**  | Confession ID: **{_id}** | \n' \
+                       f'BCode: **{bcode}** | **{date}** --> {msg}'
+                row_num_to_code[index + 1] = _id
+                nav.add_line(line)
+
+            emb_nav = nav.build(ctx=ctx)
+            emb_nav.start()
+            sent_navs.append(emb_nav)
+
+            question = 'Please type the row number for check details otherwise type c'
+            try:
+                choice, msg = await helpers.get_multichoice_answer(self.bot, ctx, row_num_to_code, question, timeout=short_delay)
+                sent_messages.extend(msg)
+            except asyncio.TimeoutError:
+                return await ctx.send('Please type in 60 seconds next time.', delete_after=short_delay)
+
+            if choice is None:
+                return await ctx.send('Command has been cancelled.', delete_after=short_delay)
+
+            correct_record = next((record for record in records if record['confession_id'] == choice), None)
+            record = await self._fetch_with_ban_code(ctx, guild.id, correct_record['confession_ban_code'])
+            e = await self._create_embed(record)
+            await ctx.send(embed=e.to_embed(), delete_after=short_delay)
+
+        finally:
+            await helpers.cleanup_messages(ctx.channel, sent_messages, navigators=sent_navs, delete_after=short_delay)
 
 
 def setup(bot):

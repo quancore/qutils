@@ -17,9 +17,7 @@ description = """
 Qutils bot provides several important utilities for the server.
 """
 
-# log = logging.getLogger('root')
-log = logging.getLogger('sentry_sdk')
-
+log = logging.getLogger('root')
 
 initial_extensions = (
     'cogs.admin',
@@ -28,7 +26,8 @@ initial_extensions = (
     'cogs.fun',
     'cogs.cameradice',
     'cogs.talks',
-    # 'cogs.confession',
+    'cogs.confession',
+    'cogs.feedback',
     # 'cogs.automation',
 )
 
@@ -47,10 +46,10 @@ def exception_handler(loop, ctx):
 
 
 class Qutils(commands.AutoShardedBot):
-    def __init__(self):
+    def __init__(self, intents):
         super().__init__(command_prefix=_prefix_callable, description=description, case_insensitive=True,
                          pm_help=None, help_attrs=dict(hidden=True), fetch_offline_members=True,
-                         activity=discord.Game(name=":help for mods"), owner_id=int(OWNER_ID)
+                         activity=discord.Game(name=":help for mods"), owner_id=int(OWNER_ID), intents=intents
                          )
 
         self.client_id = CLIENT_ID

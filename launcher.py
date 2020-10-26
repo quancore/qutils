@@ -3,7 +3,6 @@
 import logging
 import asyncio
 import contextlib
-import sentry_sdk
 import click
 import traceback
 import importlib
@@ -16,20 +15,14 @@ from utils.logger import DiscordHandler
 from utils.db import Table
 from config import BOT_TOKEN, SENTRY_URL, PostgreSQL
 from bot import Qutils, initial_extensions
-from sentry_sdk.integrations.logging import LoggingIntegration
 
 
 # config class for postgresql
 postgres_config = PostgreSQL()
-# All of this is already happening by default!
-sentry_logging = LoggingIntegration(
-    level=logging.DEBUG,        # Capture info and above as breadcrumbs
-    event_level=logging.INFO  # Send errors as events
-)
-sentry_sdk.init(SENTRY_URL, integrations=[sentry_logging])
 
 
 def setup_file_logger(name):
+    """ Setup local file logger """
     logger = logging.getLogger(name)
     file_handler = logging.FileHandler(filename='qutils.log', encoding='utf-8', mode='w')
     dt_fmt = '%Y-%m-%d %H:%M:%S'
@@ -38,9 +31,22 @@ def setup_file_logger(name):
     logger.addHandler(file_handler)
     logger.setLevel(logging.DEBUG)
 
-def setup_setry_logger(name):
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
+
+def setup_sentry_logger(name):
+    """ Setup remote sentry logger """
+    import sentry_sdk
+    from sentry_sdk.integrations.logging import LoggingIntegration
+
+    sentry_logging = LoggingIntegration(
+        level=logging.DEBUG,  # Capture info and above as breadcrumbs
+        event_level=logging.INFO  # Send errors as events
+    )
+    sentry_sdk.init(SENTRY_URL, integrations=[sentry_logging])
+    sentry_logger = logging.getLogger('sentry_sdk')
+    main_logger = logging.getLogger(name)
+    for handler in sentry_logger.handlers:
+        main_logger.addHandler(handler)
+
 
 @contextlib.contextmanager
 def setup_logging(name, bot):
@@ -76,11 +82,10 @@ def setup_logging(name, bot):
 def run_bot():
     # create bot
     setup_file_logger('root')
-    setup_setry_logger('sentry_sdk')
-    loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
-    for handler in loggers:
-        print(handler)
-    bot = Qutils()
+    # setup_sentry_logger('root')
+    intents = discord.Intents.all()
+
+    bot = Qutils(intents)
     with setup_logging('root', bot):
         loop = asyncio.get_event_loop()
         log = logging.getLogger('root')
