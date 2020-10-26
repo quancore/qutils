@@ -139,7 +139,7 @@ class Admin(commands.Cog):
 # *******************************************
     @commands.command(hidden=True)
     @commands.is_owner()
-    async def load(self, *, module : str):
+    async def load_module(self, *, module: str):
         """Loads a module."""
         try:
             self.bot.load_extension(module)
@@ -151,7 +151,7 @@ class Admin(commands.Cog):
 
     @commands.command(hidden=True)
     @commands.is_owner()
-    async def unload(self, *, module : str):
+    async def unload_module(self, *, module: str):
         """Unloads a module."""
         try:
             self.bot.unload_extension(module)
@@ -163,7 +163,7 @@ class Admin(commands.Cog):
 
     @commands.command(name='reload', hidden=True)
     @commands.is_owner()
-    async def _reload(self, *, module : str):
+    async def _reload_module(self, *, module: str):
         """Reloads a module."""
         try:
             self.bot.unload_extension(module)
