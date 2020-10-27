@@ -15,7 +15,7 @@ RUN apt-get update && \
 
 
 ADD environment.yml /tmp/environment.yml
-RUN conda update conda && conda create nomkl --file /tmp/environment.yml && \
+RUN conda update conda && conda env create nomkl --file /tmp/environment.yml && \
     conda clean --all --force-pkgs-dirs --yes && \
     find "$CONDA_DIR" -follow -type f \( -iname '*.a' -o -iname '*.pyc' -o -iname '*.js.map' \) -delete
 
