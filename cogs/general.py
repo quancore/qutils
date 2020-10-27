@@ -4,8 +4,6 @@ import datetime
 from fuzzywuzzy import process
 from collections import defaultdict
 
-
-
 from discord import Embed, TextChannel, Color, Role, Member, utils
 from discord.ext import commands
 from utils.formats import CustomEmbed

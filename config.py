@@ -157,6 +157,10 @@ TENOR_API_KEY = get_env("TENOR_API_KEY")
 max_lost_member = Config.get_conf_key('cameradice', "max_lost_member", 4, value_type='int')
 start_game_delay = Config.get_conf_key('cameradice', "start_game_delay", 10, value_type='int')
 ##############################
+#### Truthdare  ##############
+# directory for json permission templates
+base_truthdare_dir = 'truthdare'
+##############################
 ##### Automation cog #########
 # number of days the inactive members will be announced in announcement channel
 num_announce_days = Config.get_conf_key('announcement', "num_announce_days", 2, value_type='int')

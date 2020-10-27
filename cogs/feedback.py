@@ -1,31 +1,15 @@
-import random
-import string
 import asyncio
-import asyncpg
-import hashlib
-import json
-import textwrap
-import datetime
 
-from PIL import Image
-from io import BytesIO
-
-# this just allows for nice function annotation, and stops my IDE from complaining.
-# from typing import Union
 
 from discord.ext import commands
-from discord.errors import NotFound
-import typing
-from discord import File, TextChannel, Guild, InvalidArgument, Forbidden, HTTPException, RawMessageDeleteEvent, RawBulkMessageDeleteEvent
 
 import logging
-from config import ADMIN_CHANNEL_ID, FEEDBACK_CHANNEL_ID, GUILD_ID, \
-    message_timeout, warn_limit, command_cooldown, short_delay, mid_delay, long_delay, TIER5
-from utils import db, helpers
+from config import ADMIN_CHANNEL_ID, FEEDBACK_CHANNEL_ID, short_delay, long_delay
+from utils import helpers
 from utils.formats import CustomEmbed
-from libneko import pag
 
 log = logging.getLogger('root')
+
 
 class Feedback(commands.Cog):
 

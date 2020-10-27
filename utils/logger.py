@@ -55,7 +55,11 @@ class DiscordHandler(logging.Handler):
                       ],
                       }
         try:
-            e = CustomEmbed.from_dict(embed_dict, avatar_url=self.client.user.avatar_url)
+            if self.client.user:
+                e = CustomEmbed.from_dict(embed_dict, avatar_url=self.client.user.avatar_url)
+            else:
+                e = CustomEmbed.from_dict(embed_dict)
+
         except FieldIsTooLong as err:
             return print(err)
 
