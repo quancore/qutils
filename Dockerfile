@@ -11,11 +11,11 @@ RUN apt-get update && \
   libc6-dev \
   make \
   curl \
-  && rm -rf /var/lib/apt/lists/*g++ \
+  && rm -rf /var/lib/apt/lists/*g++
 
 
 ADD environment.yml /tmp/environment.yml
-RUN conda update conda && conda create nomkl --file /tmp/environment.yml && \
+RUN conda update conda && conda env create nomkl --file /tmp/environment.yml && \
     conda clean --all --force-pkgs-dirs --yes && \
     find "$CONDA_DIR" -follow -type f \( -iname '*.a' -o -iname '*.pyc' -o -iname '*.js.map' \) -delete
 
