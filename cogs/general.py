@@ -48,7 +48,7 @@ class General(commands.Cog):
             parameter_name = error.param.name
             await ctx.send(f"\N{NO ENTRY SIGN} Required argument {parameter_name} was missing.\n {str(error)}")
         elif isinstance(error, commands.CheckFailure):
-            await ctx.send(f"\N{NO ENTRY SIGN} custom.\n {str(error)}")
+            await ctx.send(f"\N{NO ENTRY SIGN} Check has been failed \n {str(error)}")
         elif isinstance(error, commands.CommandOnCooldown):
             retry_after = round(error.retry_after)
             await ctx.send(f"\N{HOURGLASS} Command is on cooldown, try again after {retry_after} seconds.\n {str(error)}")

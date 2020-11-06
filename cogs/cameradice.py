@@ -39,7 +39,7 @@ class MemberRoll:
         self._is_video_open = True
 
     def __repr__(self):
-        member_text = f"{self._member.mention} "
+        member_text = f"{self._member.mention}({self._member.display_name}) "
         rolled_text = f"| Rolled-> {'Not yet' if self._roll is None else str(self._roll)} "
         lost_text = f"| Lost: {'No' if not self._is_loser else 'Yes'} "
         cam_text = f"| Cam open: {'No' if not self._is_video_open else 'Yes'}"
@@ -261,8 +261,6 @@ class _DiceGame:
 
     def update_game_state(self):
         not_rolled_members = {m.member for _, m in self._member_rolls.items() if not m.is_rolled()}
-        print(not_rolled_members)
-        print(self._rolling_finished)
         equal_group = None
         if len(not_rolled_members) == 0 and not self._rolling_finished:
             print("rolling finished")
@@ -323,12 +321,20 @@ class _DiceGame:
             # filter available members (members that rolling phase not completed)
             available_members = [m for m in self._member_rolls.values() if not m.rolling_completed]
             # segment dice values into groups for available members
-            rolling_groups, losers = {k: list(g) for k, g in itertools.groupby(available_members, lambda x: x.roll)}, {}
+            sorted_members = sorted(available_members, key=lambda x: x.roll)
+            rolling_groups, losers = {k: list(g) for k, g in itertools.groupby(sorted_members, lambda x: x.roll)}, {}
+            # rolling_groups, losers = {k: list(g) for k, g in itertools.groupby(available_members, lambda x: x.roll)}, {}
             # get the number of loser place remaining
             remaining_loser_cap = self._num_losers - len(self._losers)
+            print("***********************************************")
+            print(f"Rolling groups: {rolling_groups}")
+            # print(f"Rolling groups: {rolling_groups}")
+            print(f"Remaining loser count: {remaining_loser_cap}")
             loser_and_equals_found = False
             for roll_value, group in sorted(rolling_groups.items()):
+                print(f"Roll val: {roll_value} group: {group}")
                 if len(losers) == remaining_loser_cap:
+                    print("All losers and equals found")
                     loser_and_equals_found = True
 
                 # the members neither loser nor in equal group
@@ -344,6 +350,7 @@ class _DiceGame:
                             loser_member.is_video_open = False
                             _loser[loser_member.id] = loser_member
 
+                        print(f"Loser group added: {group}")
                         losers.update(_loser)
                     else:
                         # if the last loser group is more them one member,
@@ -352,6 +359,7 @@ class _DiceGame:
                             for equal_member in group:
                                 equal_member.roll = None
                                 equal_member.rolling_completed = False
+                            print(f"Equal group added: {group}")
                             equal_group = (roll_value, group)
                             loser_and_equals_found = True
 
@@ -453,9 +461,12 @@ class Camdice(commands.Cog):
                     await found_after_tc.send(f"{member.mention} has been lost the camdice game and open the camera.\n "
                                               f"**WELL DONE TO FULFILL YOUR PROMISE**")
                     if after_current_game.game_finished:
-                        self.current_games.pop(found_after_tc.id, None)
-                        self.channel_list.pop(found_after_vc.id, None)
-                        return await found_after_tc.send(f"Active camdice game in 🔊{found_after_vc.name} has been finished.")
+                        # self.current_games.pop(found_after_tc.id, None)
+                        # self.channel_list.pop(found_after_vc.id, None)
+                        # return await found_after_tc.send(f"Active camdice game in 🔊{found_after_vc.name} has been finished.")
+                        return await found_after_tc.send(f"Active camdice game in 🔊{found_after_vc.name} has been finished"
+                                                         f" because all losers have opened camera. However, the channel will be locked"
+                                                         f" until you run `close` command to finish game.")
 
                 return
 
@@ -737,6 +748,29 @@ class Camdice(commands.Cog):
                 return await ctx.send(f'{author.mention} has lost game in 🔊{current_game.vc.name}'
                                       f' and trying to end the game without opening video cam.\n'
                                       f'You can close the game after opening your webcam.', delete_after=short_delay)
+
+            confirm = await ctx.prompt("Are you sure to end this game?", author_id=current_game.lead.id,
+                                       timeout=short_delay, delete_after=True)
+            if confirm:
+                self.current_games.pop(channel_id, None)
+                self.channel_list.pop(current_game.vc.id, None)
+                return await ctx.send(f"The active camdice game in 🔊{current_game.vc.name} has been finished.")
+            elif confirm is None:
+                await ctx.send("Operation has been cancelled.", delete_after=short_delay)
+        finally:
+            await helpers.cleanup_messages(ctx.channel, sent_messages, delete_after=short_delay)
+
+    @camdice.command(name='force_close', help='Close a game forcefully.', aliases=['f_c'])
+    @commands.guild_only()
+    @commands.has_any_role(*ADMIN_ROLE_NAMES)
+    async def force_close(self, ctx):
+        sent_messages = [ctx.message]
+        try:
+            channel_id = ctx.channel.id
+            current_game = self.current_games.get(channel_id)
+
+            if current_game is None:
+                return await ctx.send(f'There is no game setup for {ctx.channel.mention} to close a game.', delete_after=short_delay)
 
             confirm = await ctx.prompt("Are you sure to end this game?", author_id=current_game.lead.id,
                                        timeout=short_delay, delete_after=True)
