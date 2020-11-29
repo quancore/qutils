@@ -15,9 +15,8 @@ Nazi döneminde yaşamış olsaydınız, kim olurdun?
 Okul zamanınız / çalışma süreniz / eğitim / geçen yıldaki en utanç verici deneyim neydi?
 Hayatının en büyük hatası neydi?
 Asla ne yapmazsın - yaşamak için sadece 12 saatin olduğunu bilsen bile?
-Hangi suçu işledin?
+Hangi criminal suçu işledin?
 Bana çocukluğundan bir sır ver.
-En büyük (gizli) yardımcınız nedir?
 Benimle ne yapmak istersin … (ya da xy kişiyle), o zaman (onun, …) hafızamı silebilseydin?
 Şimdiye kadar yaptığın en kötü şey nedir?
 Hiç suan oyunda olan birisinden hoşlandın mı?
@@ -95,7 +94,6 @@ Turda en çok kim öpmek istersiniz?
 Masada kim muhtemelen en cok gıdıklanır?
 Hayatının en büyük hatası neydi?
 Randevunuzda utanç verici bir şey mi oldu?
-Hiç uyuşturucu madde ile bağlantı kurdun mu?
 Şimdi karsi cinsten hangi kişiyi öpmek isterdin?
 Hiç fuckbuddyin oldu mu?
 Hiç tek gecelik ilişki yaşadın mı, evetse anlat?
@@ -107,7 +105,7 @@ Hangisi senin favori şarkın?
 Yalnız bir adaya düsüyorsun, turda yanina alacagin 3 kisi ve neden?
 En çok neden korkuyorsun?
 Sana en kötü kalbi kim verdi?
-Sence burdaki en kötü kalpli kişi kim?
+Sence suanda kanala bagli olan en kötü kalpli kişi kim?
 Hangi yıldızı sıcak seviyorsun?
 Bu turda en sevdiğin kişi kim?
 Hangi hayvan size en uygun ve neden?
@@ -123,6 +121,8 @@ Kendi cinsiyetine sahip biriyle yakınlaşmayı merak ediyor musun?
 Uzun bir ön sevişmeyi seviyor musun? Eğer öyleyse, nasıl olmali?
 Kendini tatmin ettiğinde ne düşünüyorsun?
 Orgazm inliyor mu?
+Hic hemcinsin ile seks yapmayi dusundun mu?
+Basina gelen en buyuk rezalet neydi, anlat?
 En son ne zaman seks yaptın?
 Hiç public seks yaptın mı?
 Hiç bir erkeğin yüzüne boşalmasına izin verdin mi?
@@ -152,7 +152,7 @@ Büyüyen hayali bir arkadaşınız var mıydı?
 En kötü alışkanlığınız nedir?
 Burnunu karıştırır mısın?
 Banyoda şarkı söyler misin?
-Hiç üzerine işedin mi?
+Hiç üaltina işedin mi?
 Toplumda en utanç verici anınız neydi?
 Aynada kendinle hiç konuştun mu?
 Web geçmişinizi, birileri görürse utanacağınız şey ne olurdu?
@@ -247,10 +247,10 @@ Issız bir adada kanaldan kimin mahsur kalmasını isterdiniz?
 Hiç terk edildin mi? Bunun nedeni neydi?
 Şişman olmadan istediğin bir şeyi yiyebilseydin, bu yemek ne olurdu?
 Eğer görünmez olsaydın, bu odadan kimi gözetlemek isterdin?
-En son ne zaman aynaya baktın?
 Senden daha yaşlı bir kadınla çıkar mısın?
 En son ne zaman ağladın?
-Sarışın mı seversin esmer mi?
+En son cirilciplak sekilde aynada kendini ne zaman inceledin?
+Sarışın mı seversin esmer mi tercih edersin?
 Ailen kız arkadaşından nefret ederse, onu terk eder miydin?
 Kız arkadaşın en iyi arkadaşından nefret ederse ne yapardın?
 Kanaldan kimi kıskanıyorsun?
@@ -313,6 +313,7 @@ Arkadaşlarınla yapmayı sevdiğin ama sevgilinin önünde asla yapmayacağın 
 Bu hayatta en çok kimi kıskanıyorsun?
 Bir buluşmadan kaçmak için hiç hasta numarası yaptın mı?
 Çıktığın en yaşlı kişi kim?
+Ölmeden kesin görmeliyim dedigin ülke neresi ve neden?
 Aşk için her şeyi yaparım ama “bunu” yapmam dediğin şey nedir?
 Haftada kaç kez aynı pantolonu giyiyorsun?
 Bugün şansın olsa lise aşkınla çıkar mısın?
@@ -322,8 +323,6 @@ Sevdiğini itiraf etmekten utandığın film hangisidir?
 En utanc verici kişisel bakım alışkanlığın nedir?
 En son ne zaman ve ne için özür diledin?
 Utanç verici kokularınızın çoğu nereden geliyor?
-Boxer mı yoksa külot mu?
-Saçlarını uzatmayı düşünsen ne kadar uzatırdın?
 Kimsenin bilmeyeceği garanti olsa kimi öldürmek isterdin?
 Başkası için aldığın en ucuz hediye nedir?
 Başkası için aldığın en pahali hediye nedir?
@@ -354,7 +353,6 @@ Birine yaptığın en iğrenç şaka neydi?
 Sevgilinle yapmak istediğin en çılgınca şey nedir?
 Sevişmekten kaçmak için hiç bahane uydurdun mu?
 Çok paran olsa alacağın ilk şey?
-Hiç 16 yaşından önce içki içtin mi?
 Bir başkasından etkilenerek yaptığın en çılgınca şey neydi?
 Google’da aradığınız en son şey neydi?
 Çıplak kalmak veya aklından geçenlerin kafanın üstünde yazması arasında bir seçim yapmak zorunda olsan hangisini seçerdin?
@@ -372,9 +370,8 @@ Hangi spor dalından nefret ediyorsun?
 Ailen sana hiç leyleklerin çocuk getirdiği masalı anlattı mı?
 Hiç kimseye söylemek istemediğin ama yaparken büyük keyif aldığın şey nedir?
 En utanç verici alışkanlığın nedir?
-Banyo yaparken herhangi biri banyoya dalış yaptı mı?
+Banyo yaparken herhangi biri banyoya aniden girdin mi?
 Hiç yanlışlıkla bir duvara veya ağaca çarptın mı?
-En sevdiğin kıyafetin nedir?
 Yalnızken burnunu karıştırır mısın?
 Ne kadar yaşlı biriyle sevgili olurdun?
 Daha önce hiç altına işediğin oldu mu?
@@ -389,14 +386,14 @@ En pişman olduğun seks deneyimin ve neden?
 Porno izlerken en sevdiğin kategori?
 Kendi cinsinin birbiri ile sevişmesini izlemekten hoşlanır mısın?
 Buradan birisini kölen yapacak olsan kim olurdu ve onla ne yapardin?
-Hiç mastürbasyon yaparken birine yakalandın mı?
+Hiç mastürbasyon yaparken birine yakalandın mı ve nasil?
 Sütyen bedenin ne?
 Cinsel fantezilerinden birini söyle?
 Karşı cinste en seksi bulduğun şey nedir?
 Seni en çok tahrik eden şey?
 Hic toplum icinde olur olmadik bir yerde erekte oldun / islandin mi, anlat?
 Bize bir sarhoşluk hikayeni anlat!
-Hiç tam sarhoş olmadan sarhoş göbo tavranıp karşı cinsle daha fazla yakınlaştın mı?
+Hiç tam sarhoş olmadan sarhoş gibi tavranıp karşı cinsle daha fazla yakınlaştın mı?
 Hiç fetişin var mı? Varsa açıkla!
 Anal seks yaptin mi, evet ise ilk tecrübeni anlat?
 Hic ic camasiri giymeden date'e gittin mi, anlat?
@@ -409,3 +406,22 @@ Ebebeynlerine söyledigin en büyük yalan?
 Hiç partnerinin ağzına boşalmasına izin verdin mi?
 En sevdiğin teknoloji aletin?
 En sevdiğin kıyafetin hangisi, neden?
+Suan oyunda olan kimin sirtini keselemek isterdin?
+Bu zamana kadar hic kimyasal madde kullandin mi?
+Kilotsuz disari cikar misin, cikiyorsan kilotsuz gittigin en absurt yer?
+Seks yapmadan once rituellerin var mi?
+En son ne zaman porno izledin?
+Ailen evde iken yakalanmaktan korkara yaptigin birsey oldu mu?
+Corabini hangi siklikla degistirirsin?
+Ailenden olmesine en az uzulecegin kisi?
+Bir spor dalinda uzmanlasip milli sporcu olabilseydin hangi spor dali olurdu ve neden?
+En gereksiz buldugun meslek hangisi ve neden?
+Suan kanala bagli olan kisiler arasinda konusmasi seni en yoran kisi kim ve neden?
+Tahrik olmaktan utanc duydugun karsi cins profili var mi (deli gibi tahrik oldugun ama ben bundan nasil tahrik oldum dedigin)?
+Bir ünlünün yerine gececek olsan bu ünlü kim olurdu?
+Bir super kahraman ozelligini olsa hangisini secerdiniz ve neden?
+Icindeki kotulukten korktugun oldu mu, neden ve ne zaman?
+Hayatinda takinti haline getirdigin birisi oldu mu, ve neden?
+Hic sinama/tiyatro salonunda cinsel birseyler yaptin mi?
+Suanda kanala bagli birisi ile harika bir iliski baslangici yapip cok kotu bitecegine inanacagin birisi var mi ve neden?
+Hic orgazm taklidi yaptin mi?

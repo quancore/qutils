@@ -6,6 +6,7 @@ import hashlib
 import json
 import textwrap
 import datetime
+import functools
 
 from PIL import Image
 from io import BytesIO
@@ -16,10 +17,10 @@ from io import BytesIO
 from discord.ext import commands
 from discord.errors import NotFound
 import typing
-from discord import File, TextChannel, Guild, InvalidArgument, Forbidden, HTTPException, RawMessageDeleteEvent, RawBulkMessageDeleteEvent
+from discord import File, TextChannel, utils, InvalidArgument, Forbidden, HTTPException, RawMessageDeleteEvent, RawBulkMessageDeleteEvent
 
 import logging
-from config import ADMIN_CHANNEL_ID, CONFESSION_CHANNEL_ID, GUILD_ID, \
+from config import ADMIN_CHANNEL_ID, CONFESSION_CHANNEL_ID, GUILD_ID, valid_confession_roles,\
     message_timeout, warn_limit, command_cooldown, short_delay, mid_delay, long_delay, TIER5
 from utils import db, helpers
 from utils.formats import CustomEmbed
@@ -511,6 +512,15 @@ class Confession(commands.Cog):
         if confession_channel.permissions_for(member).read_messages is False:
             self.currently_confessing.discard(author.id)
             return await channel.send(f"You are not allowed to read confession channel: {confession_channel.name}.")
+
+        # check member has required role to confess
+        try:
+            helpers.has_any_role(member.roles, valid_confession_roles)
+        except commands.MissingAnyRole as err:
+            self.currently_confessing.discard(author.id)
+            missing_roles_str = ', '.join(err.missing_roles[0])
+            return await channel.send(f"You cannot create a confession because you are missing"
+                                      f" at least one of the role: **{missing_roles_str}**")
 
         # Check they're allowed to send messages to that guild (banned or not)
         user_hexdigest = Confession.get_hash_code(str(member.id), n=16)

@@ -2,10 +2,11 @@ import datetime
 from typing import Optional, Union, Callable, Iterable
 import asyncio
 import typing
+import functools
 
 
 from discord import abc
-from discord import Guild, Role, Client, NotFound, Forbidden, \
+from discord import Guild, Role, Client, NotFound, Forbidden,\
     HTTPException, InvalidData, Member, utils, TextChannel, DMChannel, Embed
 from discord.ext import commands
 
@@ -262,3 +263,11 @@ async def prompt(bot: commands.Bot, channel: typing.Union[DMChannel, TextChannel
     finally:
         return confirm, response
 
+
+# ********** Checkers ******************
+def has_any_role(member_roles, *items):
+    getter = functools.partial(utils.get, member_roles)
+    if any(getter(id=item) is not None if isinstance(item, int) else getter(name=item) is not None for item in items):
+        return True
+
+    raise commands.MissingAnyRole(items)

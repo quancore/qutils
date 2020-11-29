@@ -2,9 +2,11 @@ import base64
 from os import environ
 from dotenv import load_dotenv
 from configparser import ConfigParser
+import json
 
 load_dotenv()
-config = ConfigParser()
+# a converter to read lists
+config = ConfigParser(converters={'list': lambda x: [i.strip() for i in x.split(',')]})
 
 DEPLOY = bool(environ.get('DEPLOY'))
 CONFIG_FILE = str(environ.get('CONFIG_FILE', 'config.ini'))
@@ -35,6 +37,8 @@ class Config:
                 value = config.getint(section, key, fallback=fallback)
             elif value_type == 'float':
                 value = config.getfloat(section, key, fallback=fallback)
+            elif value_type == 'list':
+                value = config.getlist(section, key, fallback=fallback)
             else:
                 raise TypeError(f'Given type: {value_type} is not defined.')
 
@@ -146,22 +150,30 @@ base_json_dir = 'json_templates'
 short_delay = Config.get_conf_key('main', "short_delay", 60, value_type='int')
 mid_delay = Config.get_conf_key('main', "mid_delay", 120, value_type='int')
 long_delay = Config.get_conf_key('main', "long_delay", 300, value_type='int')
-##### Confession cog #########
+
+# #### Confession cog #########
 message_timeout = Config.get_conf_key('confession', "message_timeout", 600, value_type='int')
 warn_limit = Config.get_conf_key('confession', "warn_limit", 3, value_type='int')
 command_cooldown = Config.get_conf_key('confession', "command_cooldown", 6000, value_type='int')
+valid_role_list = [TIER5, TIER4, TIER3, TIER2]
+valid_confession_roles = Config.get_conf_key('confession', "valid_confession_roles", valid_role_list, value_type='list')
 ##############################
-##### Fun ####################
+
+# #### Fun ####################
 TENOR_API_KEY = get_env("TENOR_API_KEY")
-##### Cameradice #############
+# ############################
+
+# #### Cameradice #############
 max_lost_member = Config.get_conf_key('cameradice', "max_lost_member", 4, value_type='int')
 start_game_delay = Config.get_conf_key('cameradice', "start_game_delay", 10, value_type='int')
 ##############################
-#### Truthdare  ##############
+
+# ### Truthdare  ##############
 # directory for json permission templates
 base_truthdare_dir = 'truthdare'
 ##############################
-##### Automation cog #########
+
+# #### Automation cog #########
 # number of days the inactive members will be announced in announcement channel
 num_announce_days = Config.get_conf_key('announcement', "num_announce_days", 2, value_type='int')
 announcement_template = 'Maalesef aşağıda listelenen üyelerimiz kanalın aktiflik şartını sağlayamadıkları ' \
