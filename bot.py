@@ -28,7 +28,7 @@ initial_extensions = (
     'cogs.talks',
     'cogs.confession',
     'cogs.feedback',
-    'cogs.automation',
+    # 'cogs.automation',
     'cogs.truthdare'
 )
 

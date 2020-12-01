@@ -269,5 +269,4 @@ def has_any_role(member_roles, *items):
     getter = functools.partial(utils.get, member_roles)
     if any(getter(id=item) is not None if isinstance(item, int) else getter(name=item) is not None for item in items):
         return True
-
     raise commands.MissingAnyRole(items)

@@ -515,10 +515,10 @@ class Confession(commands.Cog):
 
         # check member has required role to confess
         try:
-            helpers.has_any_role(member.roles, valid_confession_roles)
+            helpers.has_any_role(member.roles, *valid_confession_roles)
         except commands.MissingAnyRole as err:
             self.currently_confessing.discard(author.id)
-            missing_roles_str = ', '.join(err.missing_roles[0])
+            missing_roles_str = ', '.join(err.missing_roles)
             return await channel.send(f"You cannot create a confession because you are missing"
                                       f" at least one of the role: **{missing_roles_str}**")
 
