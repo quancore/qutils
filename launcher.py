@@ -1,8 +1,6 @@
 """Main script to define bot methods, and start the bot."""
 
-import logging
 import asyncio
-import contextlib
 import click
 import traceback
 import importlib
@@ -11,97 +9,29 @@ import sys
 
 import discord
 
-from utils.logger import DiscordHandler
+from utils.logger import LOGGER
 from utils.db import Table
-from config import BOT_TOKEN, SENTRY_URL, PostgreSQL
+from utils.config import bot_config
 from bot import Qutils, initial_extensions
-
-
-# config class for postgresql
-postgres_config = PostgreSQL()
-
-
-def setup_file_logger(name):
-    """ Setup local file logger """
-    logger = logging.getLogger(name)
-    file_handler = logging.FileHandler(filename='qutils.log', encoding='utf-8', mode='w')
-    dt_fmt = '%Y-%m-%d %H:%M:%S'
-    fmt = logging.Formatter('[{asctime}] [{levelname:<7}] {name}: {message}', dt_fmt, style='{')
-    file_handler.setFormatter(fmt)
-    logger.addHandler(file_handler)
-    logger.setLevel(logging.DEBUG)
-
-
-def setup_sentry_logger(name):
-    """ Setup remote sentry logger """
-    import sentry_sdk
-    from sentry_sdk.integrations.logging import LoggingIntegration
-
-    sentry_logging = LoggingIntegration(
-        level=logging.DEBUG,  # Capture info and above as breadcrumbs
-        event_level=logging.INFO  # Send errors as events
-    )
-    sentry_sdk.init(SENTRY_URL, integrations=[sentry_logging])
-    sentry_logger = logging.getLogger('sentry_sdk')
-    main_logger = logging.getLogger(name)
-    for handler in sentry_logger.handlers:
-        main_logger.addHandler(handler)
-
-
-@contextlib.contextmanager
-def setup_logging(name, bot):
-    try:
-        # __enter__
-        logging.getLogger('discord').setLevel(logging.INFO)
-        logging.getLogger('discord.http').setLevel(logging.WARN)
-
-        logger = logging.getLogger(name)
-        discord_handler = DiscordHandler(bot)
-
-        logger.addHandler(discord_handler)
-
-        logger.info('Logging has been setup.')
-        logger.setLevel(logging.DEBUG)
-
-        yield
-    except Exception as e:
-        print(e)
-
-    finally:
-        def exit_logger(_logger):
-            _logger.info('All handlers will be removed.')
-            # __exit__
-            handlers = _logger.handlers[:]
-            for handler in handlers:
-                handler.close()
-                _logger.removeHandler(handler)
-
-        exit_logger(logger)
 
 
 def run_bot():
     # create bot
-    setup_file_logger('root')
-    # setup_sentry_logger('root')
     intents = discord.Intents.all()
-
     bot = Qutils(intents)
-    with setup_logging('root', bot):
-        loop = asyncio.get_event_loop()
-        log = logging.getLogger('root')
-        bot.log = log
-        """Entry point for poetry script."""
+    loop = asyncio.get_event_loop()
+    bot.log = LOGGER
 
-        try:
-            pool = loop.run_until_complete(Table.create_pool(postgres_config.return_connection_str(), command_timeout=60))
-        except Exception as e:
-            click.echo('Could not set up PostgreSQL. Exiting.', file=sys.stderr)
-            log.exception('Could not set up PostgreSQL. Exiting.')
-            return
-        else:
-            bot.pool = pool
-            bot.loop = loop
-            bot.run()
+    try:
+        pool = loop.run_until_complete(Table.create_pool(bot_config.db.get_conn_str(), command_timeout=60))
+    except Exception as e:
+        click.echo('Could not set up PostgreSQL. Exiting.', file=sys.stderr)
+        LOGGER.exception('Could not set up PostgreSQL. Exiting.')
+        return
+    else:
+        bot.pool = pool
+        bot.loop = loop
+        bot.run()
 
 
 @click.group(invoke_without_command=True, options_metavar='[options]')
@@ -124,7 +54,7 @@ def init(cogs, quiet):
     """This manages the migrations and database creation system for you."""
     run = asyncio.get_event_loop().run_until_complete
     try:
-        run(Table.create_pool(postgres_config.return_connection_str()))
+        run(Table.create_pool(bot_config.db.get_conn_str()))
     except Exception:
         click.echo(f'Could not create PostgreSQL connection pool.\n{traceback.format_exc()}', err=True)
         return
@@ -186,7 +116,7 @@ def migrate(ctx, cog, quiet):
 
 async def apply_migration(cog, quiet, index, *, downgrade=False):
     try:
-        pool = await Table.create_pool(postgres_config.return_connection_str())
+        pool = await Table.create_pool(bot_config.db.get_conn_str())
     except Exception:
         click.echo(f'Could not create PostgreSQL connection pool.\n{traceback.format_exc()}', err=True)
         return
@@ -264,7 +194,7 @@ def drop(cog, quiet):
     click.confirm('do you really want to do this?', abort=True)
 
     try:
-        pool = run(Table.create_pool(postgres_config.return_connection_str()))
+        pool = run(Table.create_pool(bot_config.db.get_conn_str()))
     except Exception:
         click.echo(f'Could not create PostgreSQL connection pool.\n{traceback.format_exc()}', err=True)
         return
@@ -314,7 +244,7 @@ def convertjson(ctx, cogs):
             to_run.append((elem, cog))
 
     async def make_pool():
-        return await asyncpg.create_pool(postgres_config.return_connection_str())
+        return await asyncpg.create_pool(bot_config.db.get_conn_str())
 
     try:
         pool = run(make_pool())
@@ -330,7 +260,7 @@ def convertjson(ctx, cogs):
         await client.logout()
 
     try:
-        run(client.login(BOT_TOKEN))
+        run(client.login(bot_config.auth.token))
         run(client.connect(reconnect=False))
     except:
         pass

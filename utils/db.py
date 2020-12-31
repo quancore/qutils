@@ -17,7 +17,7 @@ import logging
 import asyncio
 import ssl
 
-log = logging.getLogger('root')
+from utils.logger import LOGGER
 
 
 class SchemaError(Exception):
@@ -227,10 +227,10 @@ class ForeignKey(SQLType):
         on_update = on_update.upper()
 
         if on_delete not in valid_actions:
-            raise TypeError('On_delete must be one of %s.' % valid_actions)
+            raise TypeError('On_delete must be one of %s.' % ", ".join(valid_actions))
 
         if on_update not in valid_actions:
-            raise TypeError('On_update must be one of %s.' % valid_actions)
+            raise TypeError('On_update must be one of %s.' % ", ".join(valid_actions))
 
         self.table = table
         self.column = column
@@ -288,6 +288,7 @@ class Array(SQLType):
 class Column:
     __slots__ = ( 'column_type', 'index', 'primary_key', 'nullable',
                   'default', 'unique', 'name', 'index_name' )
+
     def __init__(self, column_type, *, index=False, primary_key=False,
                  nullable=True, unique=False, default=None, name=None):
 
@@ -1022,7 +1023,7 @@ async def _table_creator(tables, *, verbose=True):
         try:
             await table.create(verbose=verbose)
         except:
-            log.error('Failed to create table %s.', table.__tablename__)
+            LOGGER.error('Failed to create table %s.', table.__tablename__)
 
 
 def create_tables(*tables, verbose=True, loop=None):

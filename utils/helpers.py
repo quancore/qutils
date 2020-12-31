@@ -3,24 +3,34 @@ from typing import Optional, Union, Callable, Iterable
 import asyncio
 import typing
 import functools
+from benedict import benedict
 
-
-from discord import abc
-from discord import Guild, Role, Client, NotFound, Forbidden,\
-    HTTPException, InvalidData, Member, utils, TextChannel, DMChannel, Embed
+from discord import abc, Guild, Role, Client, NotFound, Forbidden,\
+    HTTPException, InvalidData, Member, utils, TextChannel, DMChannel, Embed, \
+    BaseActivity, Spotify, Activity, CustomActivity, Game, enums
 from discord.ext import commands
 
-from config import activity_min_day
+from utils.config import bot_config, Guild as Guild_conf
 from libneko import pag
 
+
 # ******* Discord related ************
-async def get_channel_by_id(client: Client, guild: Guild, channel_id: int) \
+
+async def get_channel_by_id(client: Client, guild: typing.Union[Guild, None], channel_id: int) \
         -> Optional[Union[abc.GuildChannel, abc.PrivateChannel]]:
-    """ Get a channel by id from a guild if exist else return None """
+    """
+    Get a channel by id from a guild if exist else return None
+    If guild is None, client object will be used
+    """
     channel = None
     if guild is not None:
         try:
             channel = guild.get_channel(channel_id) or await client.fetch_channel(channel_id)
+        except (NotFound, Forbidden, InvalidData, HTTPException):
+            pass
+    else:
+        try:
+            channel = client.get_channel(channel_id) or await client.fetch_channel(channel_id)
         except (NotFound, Forbidden, InvalidData, HTTPException):
             pass
 
@@ -62,6 +72,34 @@ async def get_role_by_name(guild: Guild, role_name: str) -> Role:
     return role
 
 
+async def get_role_by_id(guild: Guild, role_id: int) -> typing.Optional[Role]:
+    """ Get a role by id and type from a guild if exist else return None """
+    role = None
+    if guild is not None:
+        roles = guild.roles
+        role = utils.get(roles, id=role_id)
+        if role is None:
+            try:
+                roles = await guild.fetch_roles()
+            except HTTPException:
+                pass
+            else:
+                role = utils.get(roles, id=role_id)
+
+    return role
+
+
+async def get_roles_by_id(guild: Guild, role_ids: typing.List[int]) -> typing.List[typing.Optional[Role]]:
+    """ Get a role by id and type from a guild if exist else return None """
+    role_list = []
+    for role_id in role_ids:
+        role = await get_role_by_id(guild, role_id)
+        if role is not None:
+            role_list.append(role)
+
+    return role_list
+
+
 async def get_member_by_id(guild: Guild, member_id: int) -> Optional[Member]:
     """ Get a member by id from a guild if exist else return None """
     member = None
@@ -85,11 +123,14 @@ async def get_guild_by_id(client: Client, guild_id: int) -> Optional[Guild]:
     return guild
 
 
-async def get_inactive_members(guild, included_roles: Iterable, activity_role, exceptions=None):
+async def get_inactive_members(guild: Guild, included_roles: Iterable, activity_role: Role,
+                               exceptions: typing.Optional[typing.List[Member]] = None):
     """ Get inactive member ids """
 
     if exceptions is None:
         exceptions = []
+
+    activity_min_day = int(bot_config.get_guild_by_id(guild.id).get_cog("general", {}).get("activity_min_day", 7))
 
     valid_members = []
     member_text = ''
@@ -119,7 +160,7 @@ def prepare_message_mention(guild_id, channel_id, message_id):
     return f"https://discordapp.com/channels/{guild_id}/{channel_id}/{message_id}"
 
 
-def representsInt(s):
+def representsInt(s: str):
     """ Try to cast given value to integer and return if possible else return -1"""
     if s is None:
         return -1
@@ -263,6 +304,70 @@ async def prompt(bot: commands.Bot, channel: typing.Union[DMChannel, TextChannel
     finally:
         return confirm, response
 
+
+def activity_to_str(activities: Optional[typing.List[typing.Union[BaseActivity, Spotify]]] = None):
+    """ Convert user activity to string """
+    if activities is None or len(activities) == 0:
+        return "No activity"
+
+    for activity in activities:
+        if activity and isinstance(activity, Activity) and activity.name is not None:
+            if activity.type == enums.ActivityType.playing:
+                return f"Playing **{activity.name}**"
+            elif activity.type == enums.ActivityType.streaming:
+                return f"Streaming **{activity.name}**"
+            elif activity.type == enums.ActivityType.listening:
+                return f"Listening **{activity.name}**"
+            elif activity.type == enums.ActivityType.watching:
+                return f"Watching **{activity.name}**"
+            elif activity.type == enums.ActivityType.competing:
+                return f"Competing **{activity.name}**"
+            elif activity.type == enums.ActivityType.custom:
+                return f"Engaging **{activity.name}**"
+            else:
+                return f"Unknown activity type with **{activity.name}**"
+        elif activity and isinstance(activity, Spotify) and activity.name is not None:
+            return f"Listening **{activity.title}** via Spotify"
+        elif activity and isinstance(activity, Game) and activity.name is not None:
+            return f"Playing **{activity.name}** via Spotify"
+        elif activity and isinstance(activity, CustomActivity) and activity.name is not None:
+            return f"Engaging **{activity.name}**"
+
+    return "Unknown activity"
+
+
+# ********** Config related functions ****
+def get_common_settings(guild_id: int, cog_name: typing.Optional[str] = None) \
+        -> (typing.Optional[Guild_conf], typing.Optional[benedict]):
+    """
+    Get guild and optionally cog config for given guild id.
+    Raises ValueError if no guild config or cog config found
+    """
+    guild_cf = bot_config.get_guild_by_id(guild_id)
+    cog_cf = None
+    if guild_cf is None:
+        raise ValueError("No config found for this server.")
+
+    if cog_name is not None:
+        cog_cf = guild_cf.get_cog(cog_name)
+        if cog_cf is None:
+            raise ValueError(f"No config found for {cog_name} command group in this server.")
+
+    return guild_cf, cog_cf
+
+
+def get_top_hierarchy_role(guild_cf: Guild_conf, member_roles: typing.List[Role]) \
+        -> (typing.Optional[Role], typing.Optional[dict]):
+    """ Get the top hierarchy role and related upgrade info among given member roles """
+    hierarchy_roles = guild_cf.get_hierarchy_roles({})
+    for index in range(1, len(hierarchy_roles)+1):
+        hierarchy_role = hierarchy_roles.get_dict(index)
+        if hierarchy_role:
+            for role in member_roles:
+                if role.id == hierarchy_role.get_int("ID"):
+                    return role, hierarchy_role
+
+    return None, None
 
 # ********** Checkers ******************
 def has_any_role(member_roles, *items):

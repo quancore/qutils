@@ -9,27 +9,27 @@ from collections import Counter, deque
 from discord.ext import commands
 import discord
 
-from config import CLIENT_ID, BOT_TOKEN, OWNER_ID
-from utils import context
-from utils.config import Config
+from utils.config import bot_config
+from utils import context, logger
+from utils.logger import LOGGER
+from utils.json_db import Config
+
 
 description = """
 Qutils bot provides several important utilities for the server.
 """
 
-log = logging.getLogger('root')
-
 initial_extensions = (
-    'cogs.admin',
+    # 'cogs.admin',
     'cogs.general',
-    'cogs.remainder',
-    'cogs.fun',
-    'cogs.cameradice',
-    'cogs.talks',
-    'cogs.confession',
-    'cogs.feedback',
-    'cogs.automation',
-    'cogs.truthdare'
+    # 'cogs.remainder',
+    # 'cogs.fun',
+    # 'cogs.cameradice',
+    # 'cogs.talks',
+    # 'cogs.confession',
+    # 'cogs.feedback',
+    # 'cogs.automation',
+    # 'cogs.truthdare'
 )
 
 
@@ -43,27 +43,32 @@ def _prefix_callable(bot, msg):
 def exception_handler(loop, ctx):
     err = f'{ctx.get("message", "-")} | {ctx.get("exception", "-")}\n' \
           f'{ctx.get("future", "-")}'
-    log.exception(err)
+    LOGGER.exception(err)
 
 
 class Qutils(commands.AutoShardedBot):
     def __init__(self, intents):
         super().__init__(command_prefix=_prefix_callable, description=description, case_insensitive=True,
                          pm_help=None, help_attrs=dict(hidden=True), fetch_offline_members=True,
-                         activity=discord.Game(name=":help for mods"), owner_id=int(OWNER_ID), intents=intents
+                         activity=discord.Game(name=":help for mods"), intents=intents
                          )
 
-        self.client_id = CLIENT_ID
-        # self.carbon_key = config.carbon_key
-        # self.bots_key = config.bots_key
-        # self.challonge_api_key = config.challonge_api_key
+        self.client_id = bot_config.auth.client_id
 
         self.session = aiohttp.ClientSession(loop=self.loop)
 
         self._prev_events = deque(maxlen=10)
 
-        # guild_id: list_role
-        self.prefixes = Config('prefixes.json')
+        self.owner_ids = bot_config.owner_ids
+
+        # setup prefix per guild
+        self.prefixes = {}
+        for guild_id, guild_conf in bot_config.guilds.items():
+            guild_prefix = guild_conf.prefix
+            if guild_prefix:
+                self.prefixes[guild_id] = guild_prefix
+
+        self.prefixes = bot_config
 
         # base default prefixes
         self.base_prefixes = ['?', '!']
@@ -86,9 +91,10 @@ class Qutils(commands.AutoShardedBot):
             try:
                 self.load_extension(extension)
             except Exception as e:
-                log.exception(f'Failed to load extension {extension}.', exc_info=True)
+                print(e)
+                LOGGER.exception(f'Failed to load extension {extension}.', exc_info=True)
             else:
-                log.info(f'Extension loaded: {extension}')
+                LOGGER.info(f'Extension loaded: {extension}')
 
         # Set event loop exception handler
         self.loop.set_exception_handler(exception_handler)
@@ -110,13 +116,13 @@ class Qutils(commands.AutoShardedBot):
         elif isinstance(error, commands.ArgumentParsingError):
             await ctx.send(error)
 
-    def get_guild_prefixes(self, guild, *, local_inject=_prefix_callable):
+    def get_guild_prefixes(self, guild: discord.Guild, *, local_inject=_prefix_callable):
         proxy_msg = discord.Object(id=0)
         proxy_msg.guild = guild
         return local_inject(self, proxy_msg)
 
     def get_raw_guild_prefixes(self, guild_id):
-        return self.prefixes.get(guild_id, ['?', '!'])
+        return bot_config.get_guild_by_id(guild_id).prefix or self.base_prefixes
 
     async def set_guild_prefixes(self, guild, prefixes):
         if len(prefixes) == 0:
@@ -139,7 +145,9 @@ class Qutils(commands.AutoShardedBot):
         if not hasattr(self, 'uptime'):
             self.uptime = datetime.datetime.utcnow()
 
-        log.info(f'Bot ready, User: {self.user} (ID: {self.user.id})')
+        # bot is ready, so we can setup discord logging handler
+        logger.setup_discord_logger(self)
+        LOGGER.info(f'Bot ready, User: {self.user} (ID: {self.user.id})')
 
     async def on_resumed(self):
         print('Season has been resumed...')
@@ -154,7 +162,7 @@ class Qutils(commands.AutoShardedBot):
         guild_name = getattr(ctx.guild, 'name', 'No Guild (DMs)')
         guild_id = getattr(ctx.guild, 'id', None)
         fmt = 'User %s (ID %s) in guild %r (ID %s) spamming, retry_after: %.2fs'
-        log.warning(fmt, message.author, message.author.id, guild_name, guild_id, retry_after)
+        LOGGER.warning(fmt, message.author, message.author.id, guild_name, guild_id, retry_after)
         if not autoblock:
             return
 
@@ -222,7 +230,7 @@ class Qutils(commands.AutoShardedBot):
 
     def run(self):
         try:
-            super().run(BOT_TOKEN, reconnect=True)
+            super().run(bot_config.auth.token, reconnect=True)
         finally:
             with open('prev_events.log', 'w', encoding='utf-8') as fp:
                 for data in self._prev_events:

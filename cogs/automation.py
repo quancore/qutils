@@ -6,7 +6,7 @@ from discord.ext.tasks import loop
 from discord.utils import get
 
 
-from config import ANNOUNCEMENT_CHANNEL_ID, GUILD_ID, ACTIVITY_INCLUDED_ROLES, ACTIVITY_ROLE_NAME, \
+from utils.config import ANNOUNCEMENT_CHANNEL_ID, GUILD_ID, ACTIVITY_INCLUDED_ROLES, ACTIVITY_ROLE_NAME, \
     num_announce_days, announcement_template
 from cogs.admin import Admin
 from utils import helpers

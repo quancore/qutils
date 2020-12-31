@@ -1,20 +1,15 @@
 import logging
-import typing
 import datetime
 from fuzzywuzzy import process
 from collections import defaultdict
 
-from discord import Embed, TextChannel, Color, Role, Member, utils
+from discord import TextChannel
 from discord.ext import commands
+
 from utils.formats import CustomEmbed
-from utils import helpers
-
-
-from utils.formats import colors
-from config import ACTIVITY_ROLE_NAME, GENDER_ROLE_NAMES, STRANGER_ROLE_NAME, \
-    STATS_ROLES, VALID_STATS_ROLES, LEADER_ROLE_NAME, BOT_ROLE_NAME, ROLE_HIERARCHY, short_delay
-
-log = logging.getLogger('root')
+from utils.logger import LOGGER
+from utils import helpers, checkers
+from bot import Qutils
 
 
 class General(commands.Cog):
@@ -22,12 +17,12 @@ class General(commands.Cog):
     General Purpose Commands
     """
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: Qutils):
         self.bot = bot
 
     @commands.Cog.listener()
     async def on_ready(self):
-        log.info(f'{self.bot.user.name} has connected to Discord!')
+        LOGGER.info(f'{self.bot.user.name} has connected to Discord!')
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
@@ -84,20 +79,28 @@ class General(commands.Cog):
                 f'[{ctx.message.id}](https://discordapp.com/channels/'
                 f'{ctx.guild.id}/{ctx.channel.id}/{ctx.message.id})'
             )
+            LOGGER.exception(error, extra=extra_context, guild_id=ctx.guild.id)
         else:
             extra_context["discord_info"]["Message"] = f"{ctx.message.id} (DM)"
-
-        log.exception(error, extra=extra_context)
+            LOGGER.exception(error, extra=extra_context)
 
     @commands.command(name='user', help='Get user avatar with information',
                       usage='[@user or username]\n'
                             'You can give member name or mention. If the name of member consists of'
                             'multiple words, use "..."',
                       aliases=['u'])
-    @commands.has_any_role(*VALID_STATS_ROLES)
+    # @commands.has_any_role(*VALID_STATS_ROLES)
+    @checkers.has_any_config_role("all_valid_roles")
     @commands.guild_only()
-    # async def user(self, ctx, members: commands.Greedy[Member], *, size: typing.Optional[str] = 's'):
     async def user(self, ctx, *, raw_member):
+        # Fetch the config for this command
+        try:
+            guild_cf, cog_cf = helpers.get_common_settings(ctx.guild.id, ctx.cog.qualified_name.lower())
+        except ValueError as err:
+            return await ctx.send(err)
+
+        short_delay = guild_cf.find_cog_setting("short_delay")
+
         sent_messages = []
         try:
             member = await commands.MemberConverter().convert(ctx, raw_member)
@@ -133,37 +136,37 @@ class General(commands.Cog):
         if member is None:
             raise commands.BadArgument(f'There is no member with given name')
 
-        # size_dict = {'s': 1024, 'm': 2048, 'l': 4096}
-        # content_size = size_dict.get(size, None)
-
-        # if content_size is None:
-        #     raise commands.BadArgument('Size argument is not valid, please give: s, m or l')
-
         now = datetime.datetime.now()
         # avatar_url = str(member.avatar_url_as(size=content_size, static_format='webp'))
         avatar_url = str(member.avatar_url_as(static_format='webp'))
-        top_role = member.top_role
         days_created = (now - member.created_at).days
         days_joined = (now - member.joined_at).days
-        role_upgrade_text = None
-        if top_role.name in ROLE_HIERARCHY:
-            next_role, days_total = ROLE_HIERARCHY[top_role.name]
-            days_left = days_total - days_joined
-            role_upgrade_text = f'{top_role.name}  ➡️ {next_role}'
-            if days_left >= 0:
-                role_upgrade_text += f' **({days_left} days left)**'
-            else:
-                role_upgrade_text += f'**(have to update immediately!!!)**'
-
         member_text = f"**Created**: {member.created_at.strftime('%Y-%m-%d %H:%M:%S')} **({days_created} days)**\n" \
                       f"**Joined**: {member.joined_at.strftime('%Y-%m-%d %H:%M:%S')} **({days_joined} days)**\n" \
-                      f"**Top role**: {top_role.name}\n"\
                       f"**Roles**: {', '.join([role.name for role in member.roles if role.name != '@everyone'])}\n" \
-                      f"**Upgrade**: {'-' if role_upgrade_text is None else role_upgrade_text}\n" \
                       f"**Status**: {('Do not disturb' if (str(member.status) == 'dnd') else str(member.status))}\n" \
+                      f"**Current activity**: {helpers.activity_to_str(member.activities)}\n" \
+                      f"**Connected voice channel**: {member.voice.channel.name if member.voice else 'Not connected'}\n" \
                       # f"**Full avatar URL: **: {avatar_url}"
 
-        embed_dict = {"title": "Avatar",
+        top_hierarchy_role, top_h_dict = helpers.get_top_hierarchy_role(guild_cf, member.roles)
+        if top_hierarchy_role is not None:
+            member_text += f"**Top hierarchy role**: {top_hierarchy_role.name}\n"
+            # check whether there is a upper level role by probing tonext variable
+            tonext = top_h_dict.get_int("TONEXT")
+            if tonext is not None:
+                days_left = tonext - days_joined
+                next_role = await helpers.get_role_by_id(ctx.guild, top_h_dict.get_int("NEXTID"))
+                if next_role is not None:
+                    role_upgrade_text = f'{top_hierarchy_role.name}  ➡️ {next_role}'
+                    if days_left >= 0:
+                        role_upgrade_text += f' **({days_left} days left)**'
+                    else:
+                        role_upgrade_text += f'**(have to update immediately!!!)**'
+
+                    member_text += f"**Upgrade**: {'-' if role_upgrade_text is None else role_upgrade_text}\n"
+
+        embed_dict = {"title": "Member profile",
                       "author": {
                           "name": f"{member.name}",
                           "icon_url": avatar_url
@@ -181,57 +184,78 @@ class General(commands.Cog):
 
     @commands.group(name='stats', help='Command group for getting several statistics of the server',
                     hidden=True, aliases=['s'])
-    @commands.has_any_role(*VALID_STATS_ROLES)
+    @checkers.has_any_config_role("all_valid_roles")
     async def stats(self, ctx):
         pass
 
-    @stats.command(name='summary', help='Get server statistics summary',
+    @stats.command(name='summary', help='Get server summary statistics',
                    usage='summary', aliases=['sum'])
     @commands.guild_only()
     async def summary(self, ctx):
         guild = ctx.guild
-        role_members = {}
-        embed_dict = {'title': '__Channel statistics__',
+
+        # Fetch the config for this command
+        try:
+            guild_cf, _ = helpers.get_common_settings(guild.id, ctx.cog.qualified_name.lower())
+        except ValueError as err:
+            return await ctx.send(err)
+
+        embed_dict = {'title': '__Server info and statistics__',
                       'fields': []}
 
-        total_member_count = guild.member_count
-        valid_member_count = 0
-        activity_role = utils.get(guild.roles, name=ACTIVITY_ROLE_NAME)
-        # filter active members by valid roles
-        active_members = None
-        if activity_role:
-            active_members = [member for member in activity_role.members if member.top_role.name in VALID_STATS_ROLES]
+        # add basic server info
+        server_info = f"**Name**: {guild.name}\n**Owner**: {guild.owner.display_name}\n**Description**: {guild.description}\n" \
+                      f"**Created at**: {guild.created_at.strftime('%m/%d/%Y')}\n**Rules channel**: {guild.rules_channel.mention}\n" \
+                      f"**# of voice channels**: {len(guild.voice_channels)}\n**# of text channels**: {len(guild.text_channels)}"
+        embed_dict['fields'].append({'name': "__General info__", 'value': server_info, 'inline': False})
 
-        member_role_text = ""
-        activity_role_text = ""
-        for role_name in STATS_ROLES:
-            role = utils.get(guild.roles, name=role_name)
+        total_member_count, valid_member_count = guild.member_count, 0
+        valid_stats_role_ids = guild_cf.find_cog_setting("all_valid_roles", fallback=[])
+        activity_role_id = int(guild_cf.get_helper_roles(fallback={}).get("ACTIVE_ROLE", default={}).get("ID", 0))
+        activity_role = await helpers.get_role_by_id(guild, activity_role_id)
+
+        # filter active members by valid roles
+        active_members = []
+        if activity_role:
+            for member in activity_role.members:
+                top_hierarchy_role, _ = helpers.get_top_hierarchy_role(guild_cf, member.roles)
+                if top_hierarchy_role and top_hierarchy_role.id in valid_stats_role_ids:
+                    active_members.append(member)
+
+        # get member statistics by role and by active members
+        member_role_text, activity_role_text = "", ""
+        stats_roles = guild_cf.find_cog_setting("all_guild_roles", [])
+        for role_id in stats_roles:
+            role = await helpers.get_role_by_id(guild, int(role_id))
             if role is not None:
-                role_members[role_name] = role
                 role_member_count = len(role.members)
-                member_role_text += f"\u21a6 **{role_name}:** {str(len(role.members))} /  {str(total_member_count)}" \
+                member_role_text += f"\u21a6 **{role.name}:** {str(role_member_count)} /  {str(total_member_count)}" \
                                     f"(%{str(round((role_member_count / total_member_count)*100, 2))})\n"
 
-                if role.name in VALID_STATS_ROLES:
+                if role.id in valid_stats_role_ids:
                     valid_member_count += role_member_count
 
-                    if activity_role is not None and active_members:
+                    if activity_role is not None and active_members and role_member_count > 0:
                         active_m_with_role = set(role.members).intersection(active_members)
-                        activity_role_text += f"\u21a6 **{role_name}:** {str(len(active_m_with_role))} (out of " \
+                        activity_role_text += f"\u21a6 **{role.name}:** {str(len(active_m_with_role))} (out of " \
                                               f"{str(role_member_count)}: %{str(round((len(active_m_with_role) / role_member_count) * 100, 2))}) " \
                                               f"/ {str(len(active_members))}" \
                                               f" (%{str(round((len(active_m_with_role) / len(active_members)) * 100, 2))})\n"
 
         member_role_text = f"**Total members:** {str(total_member_count)}\n " \
-                           f"**Total valid members(exc. {BOT_ROLE_NAME} and {STRANGER_ROLE_NAME}):** {str(valid_member_count)}\n" + member_role_text
-        embed_dict['fields'].append({'name': "__Role distribution__", 'value': member_role_text, 'inline': False})
+                           f"**Total valid members(exc. bot role and stranger role):** {str(valid_member_count)}\n" + member_role_text
+        embed_dict['fields'].append({'name': "__By role distribution__", 'value': member_role_text, 'inline': False})
+
+        # get role stats by active member grouped by role
         if activity_role_text:
             active_member_count = len(active_members)
-            activity_role_text = f"**Active ({ACTIVITY_ROLE_NAME}) members:** " \
+            activity_role_text = f"**Active ({activity_role.name}) members:** " \
                                  f"{str(active_member_count)} / {str(valid_member_count)}\n" + activity_role_text
-            embed_dict['fields'].append({'name': "__Active role distribution__", 'value': activity_role_text, 'inline': False})
+            embed_dict['fields'].append({'name': "__By active role distribution__", 'value': activity_role_text, 'inline': False})
 
-        leader_role = utils.get(guild.roles, name=LEADER_ROLE_NAME)
+        # list members who have the leader role
+        leader_role_id = int(guild_cf.get_helper_roles({}).get("LEADER_ROLE", {}).get("ID", 0))
+        leader_role = await helpers.get_role_by_id(guild, leader_role_id)
         if leader_role is not None:
             leader_members = leader_role.members
             leader_role_text = ""
@@ -239,8 +263,8 @@ class General(commands.Cog):
                 leader_role_text += f"* **{member.mention}** ({str(member.top_role)})\n"
 
             if leader_role_text:
-                leader_role_text += str("""**```css\nCongratulations to all leader members!!! You are the most precious building blocks of this channel.```**""")
-                embed_dict['fields'].append({'name': f"__Leader ({LEADER_ROLE_NAME}) members (Random order)__",
+                leader_role_text += str("""**```css\nCongratulations to all leader members!!! \nYou are the most precious building blocks of this channel.```**""")
+                embed_dict['fields'].append({'name': f"__Leader ({leader_role.name}) members (Random order)__",
                                              'value': leader_role_text, 'inline': False})
 
         e = CustomEmbed.from_dict(embed_dict,
@@ -255,43 +279,58 @@ class General(commands.Cog):
     @commands.guild_only()
     async def gender(self, ctx):
         guild = ctx.guild
-        gender_roles, valid_roles = {}, {}
+
+        # Fetch the config for this command
+        try:
+            guild_cf, _ = helpers.get_common_settings(guild.id, ctx.cog.qualified_name.lower())
+        except ValueError as err:
+            return await ctx.send(err)
+
+        valid_stats_role_ids = guild_cf.find_cog_setting("all_valid_roles", fallback=[])
+        activity_role_id = int(guild_cf.get_helper_roles(fallback={}).get("ACTIVE_ROLE", default={}).get("ID", 0))
+        activity_role = await helpers.get_role_by_id(guild, activity_role_id)
+
+        valid_member_count = 0
         embed_dict = {'title': '__Gender statistics__',
                       'fields': []}
 
-        valid_member_count = 0
-        activity_role = utils.get(guild.roles, name=ACTIVITY_ROLE_NAME)
         # filter active members by valid roles
-        active_members = None
+        active_members = []
         if activity_role:
-            active_members = [member for member in activity_role.members if member.top_role.name in VALID_STATS_ROLES]
+            for member in activity_role.members:
+                top_hierarchy_role, _ = helpers.get_top_hierarchy_role(guild_cf, member.roles)
+                if top_hierarchy_role and top_hierarchy_role.id in valid_stats_role_ids:
+                    active_members.append(member)
 
-        member_gender_text, member_role_gender_text, member_activity_gender_text, member_activity_role_gender_text = "", "", "", ""
-
-        valid_roles = {role_name: utils.get(guild.roles, name=role_name) for role_name in VALID_STATS_ROLES
-                       if utils.get(guild.roles, name=role_name) is not None}
-
-        for role_name in GENDER_ROLE_NAMES:
-            role = utils.get(guild.roles, name=role_name)
+        # collect gender roles and find total valid members given gender roles
+        gender_role_ids = guild_cf.get_gender_roles(fallback=[])
+        gender_roles = {}
+        for role_id in gender_role_ids:
+            role = await helpers.get_role_by_id(guild, role_id)
             if role is not None:
-                gender_roles[role_name] = role
+                gender_roles[role.name] = role
                 role_member_count = len(role.members)
                 valid_member_count += role_member_count
 
+        # get member stats by gender roles
+        member_gender_text, member_activity_gender_text, = "", ""
         for role_name, role in gender_roles.items():
             role_member_count = len(role.members)
             member_gender_text += f"\u21a6 ** {role_name}:** {str(role_member_count)} /  {str(valid_member_count)}" \
                                   f"  (%{str(round((role_member_count / valid_member_count) * 100, 2))})\n"
-            if activity_role is not None and active_members:
+            if activity_role is not None and active_members and role_member_count > 0:
                 active_m_with_gender = set(role.members).intersection(active_members)
                 active_m_with_gender_count = len(active_m_with_gender)
                 if active_m_with_gender_count > 0:
                     member_activity_gender_text += f" **{role_name[0]}**:{str(active_m_with_gender_count)} /  {str(len(active_members))}" \
                                                    f" (%{str(round((active_m_with_gender_count / len(active_members)) * 100, 2))})"
 
-        for valid_role_name, valid_role in valid_roles.items():
+        # get member stats by gender roles and being active
+        valid_roles = await helpers.get_roles_by_id(guild, valid_stats_role_ids)
+        member_role_gender_text, member_activity_role_gender_text = "", ""
+        for valid_role in valid_roles:
             valid_role_member_count = len(valid_role.members)
-            temp_text, temp_text2 = f"\u21a6 **{valid_role_name} =  **", f"\u21a6 **{valid_role_name} = **"
+            temp_text, temp_text2 = f"\u21a6 **{valid_role.name} =  **", f"\u21a6 **{valid_role.name} = **"
             for role_name, role in gender_roles.items():
                 valid_role_with_gender = set(role.members).intersection(valid_role.members)
                 valid_role_gender_count = len(valid_role_with_gender)
@@ -311,13 +350,13 @@ class General(commands.Cog):
             member_role_gender_text += temp_text
             member_activity_role_gender_text += temp_text2
 
-        member_gender_text = f"**Total valid members(exc. {BOT_ROLE_NAME} and {STRANGER_ROLE_NAME}):** {str(valid_member_count)}\n" + member_gender_text
-        member_role_gender_text = f"**Total valid members(exc. {BOT_ROLE_NAME} and {STRANGER_ROLE_NAME}):** {str(valid_member_count)}\n" + member_role_gender_text
+        member_gender_text = f"**Total valid members(exc. bot role and stranger role):** {str(valid_member_count)}\n" + member_gender_text
+        member_role_gender_text = f"**Total valid members(exc. bot role and stranger role):** {str(valid_member_count)}\n" + member_role_gender_text
 
         if activity_role is not None:
-            member_activity_role_gender_text = f"**Total active ({ACTIVITY_ROLE_NAME}) members:** " \
+            member_activity_role_gender_text = f"**Total active ({activity_role.name}) members:** " \
                                                f"{str(len(active_members))}\n" + \
-                                               f"**Active ({ACTIVITY_ROLE_NAME}) members by gender:** " + \
+                                               f"**Active ({activity_role.name}) members by gender:** " + \
                                                member_activity_gender_text + "\n" + member_activity_role_gender_text
 
         embed_dict['fields'].append({'name': "__Overall Gender distribution__", 'value': member_gender_text, 'inline': False})
@@ -471,14 +510,17 @@ class General(commands.Cog):
     def _get_boilerplate_embed(self, guild=None, author_name=None, title='Help'):
         """ Create a boilerplate empty help embed """
         embed_dict = {'title': title,
-                      'description': f'Use `{self.bot.get_guild_prefixes(guild)}help section name` '
+                      'description': f'Use `{self.bot.get_guild_prefixes(guild)}help section_name` '
                                      f'to find out more about them!\n'
                                      f'Ex: @{self.bot.user.name}#{self.bot.user.discriminator} help Admin',
                       }
         try:
             embed = CustomEmbed.from_dict(embed_dict, avatar_url=self.bot.user.avatar_url, author_name=author_name)
         except Exception as e:
-            log.exception(e)
+            if guild is not None:
+                LOGGER.exception(e, guild_id=guild.id)
+            else:
+                LOGGER.exception(e)
         else:
             return embed
 

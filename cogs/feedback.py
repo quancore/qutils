@@ -4,7 +4,7 @@ import asyncio
 from discord.ext import commands
 
 import logging
-from config import ADMIN_CHANNEL_ID, FEEDBACK_CHANNEL_ID, short_delay, long_delay
+from utils.config import ADMIN_CHANNEL_ID, FEEDBACK_CHANNEL_ID, short_delay, long_delay
 from utils import helpers
 from utils.formats import CustomEmbed
 

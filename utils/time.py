@@ -110,7 +110,6 @@ class UserFriendlyTime(commands.Converter):
                 self.dt = now + relativedelta(**data)
                 return await self.check_constraints(ctx, now, remaining)
 
-
             # apparently nlp does not like "from now"
             # it likes "from x" in other cases though so let me handle the 'now' case
             if argument.endswith('from now'):
@@ -149,7 +148,7 @@ class UserFriendlyTime(commands.Converter):
             if status.accuracy == pdt.pdtContext.ACU_HALFDAY:
                 dt = dt.replace(day=now.day + 1)
 
-            self.dt =  dt
+            self.dt = dt
 
             if begin in (0, 1):
                 if begin == 1:
@@ -167,10 +166,11 @@ class UserFriendlyTime(commands.Converter):
                 remaining = argument[:begin].strip()
 
             return await self.check_constraints(ctx, now, remaining)
-        except:
+        except Exception as err:
             import traceback
             traceback.print_exc()
-            raise
+            raise err
+
 
 def human_timedelta(dt, *, source=None, accuracy=3, brief=False, suffix=True):
     now = source or datetime.datetime.utcnow()

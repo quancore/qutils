@@ -6,7 +6,6 @@ import hashlib
 import json
 import textwrap
 import datetime
-import functools
 
 from PIL import Image
 from io import BytesIO
@@ -17,10 +16,10 @@ from io import BytesIO
 from discord.ext import commands
 from discord.errors import NotFound
 import typing
-from discord import File, TextChannel, utils, InvalidArgument, Forbidden, HTTPException, RawMessageDeleteEvent, RawBulkMessageDeleteEvent
+from discord import File, TextChannel, RawMessageDeleteEvent, RawBulkMessageDeleteEvent
 
 import logging
-from config import ADMIN_CHANNEL_ID, CONFESSION_CHANNEL_ID, GUILD_ID, valid_confession_roles,\
+from utils.config import ADMIN_CHANNEL_ID, CONFESSION_CHANNEL_ID, GUILD_ID, valid_confession_roles,\
     message_timeout, warn_limit, command_cooldown, short_delay, mid_delay, long_delay, TIER5
 from utils import db, helpers
 from utils.formats import CustomEmbed

@@ -1,13 +1,9 @@
 from discord.ext import commands
-from discord import utils, File, Member
+from discord import File, Member
 
-from config import TENOR_API_KEY, VALID_STATS_ROLES, short_delay, mid_delay, long_delay
+from utils.config import TENOR_API_KEY, VALID_STATS_ROLES, short_delay, mid_delay, long_delay
 from utils import helpers
-from utils.formats import CustomEmbed
 
-
-
-from urllib.parse import urlencode
 import asyncio
 import io
 import functools

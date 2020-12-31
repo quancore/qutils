@@ -1,5 +1,3 @@
-import random
-import string
 import asyncio
 import asyncpg
 import hashlib
@@ -8,20 +6,14 @@ import textwrap
 import datetime
 import validators
 
-from PIL import Image
-from io import BytesIO
-
 # this just allows for nice function annotation, and stops my IDE from complaining.
 # from typing import Union
 
 from discord.ext import commands
-from discord.errors import NotFound
-import typing
-from discord import File, TextChannel, Guild, InvalidArgument, Forbidden, HTTPException, RawMessageDeleteEvent, \
-    RawBulkMessageDeleteEvent
+from discord import Guild
 
 import logging
-from config import VALID_STATS_ROLES, ADMIN_ROLE_NAMES, GUILD_ID, message_timeout, warn_limit, command_cooldown
+from utils.config import VALID_STATS_ROLES, ADMIN_ROLE_NAMES, message_timeout
 from utils import db, helpers
 from utils.formats import CustomEmbed
 from libneko import pag

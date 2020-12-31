@@ -10,22 +10,20 @@ import logging
 import datetime
 import asyncio
 import json
-from libneko import pag
+from concurrent.futures import ProcessPoolExecutor
 
 
-from config import GUILD_ID, ACTIVITY_ROLE_NAME, ACTIVITY_INCLUDED_ROLES, ADMIN_ROLE_NAMES, RECEPTION_CHANNEL_ID, \
-    activity_schedule_gap, activity_template, activity_pm_template, role_upgrade_template, \
-    removed_member_pm_template, ANNOUNCEMENT_CHANNEL_ID, role_upgrade_gap, \
-    TIER1, TIER1toTIER2, TIER2, TIER2toTIER3, TIER3, base_json_dir, short_delay, mid_delay
-from utils import time, db, formats, helpers
+from utils import time, db, formats, helpers, checkers
+from utils.logger import LOGGER
+
+from utils.config import bot_config
 from utils.formats import EmbedGenerator, CustomEmbed, Plural, pag
-
-log = logging.getLogger('root')
 
 
 class DiscardedUsers(db.Table):
     # this is the user_id
-    id = db.Column(db.Integer(big=True), primary_key=True)
+    member_id = db.Column(db.Integer(big=True), primary_key=True)
+    guild_id = db.Column(db.Integer(big=True), primary_key=True)
     num_discarded = db.Column(db.Integer, default=1)
     nickname = db.Column(db.String)
     joined_at = db.Column(db.Datetime)
@@ -78,13 +76,13 @@ class Admin(commands.Cog):
                  """
         guild = await helpers.get_guild_by_id(self.bot, GUILD_ID)
         if guild is None:
-            return log.exception('Guild is none in cleanup_schedule function')
+            return LOGGER.exception('Guild is none in cleanup_schedule function')
 
         reminder = self.bot.get_cog('Reminder')
         if reminder is None:
             channel = await helpers.get_channel_by_id(self.bot, guild, ANNOUNCEMENT_CHANNEL_ID)
             if channel:
-                log.exception("Reminder cog unavailable for cleanup_schedule operation")
+                LOGGER.exception("Reminder cog unavailable for cleanup_schedule operation")
                 return await channel.send('Sorry, remainder cog is currently unavailable to use in cleanup_schedule.'
                                           'Please try again later')
 
@@ -122,12 +120,12 @@ class Admin(commands.Cog):
                                             connection=self.bot.pool,
                                             created=datetime.datetime.utcnow())
 
-                log.info(f'The event has been rescheduled in autonomous function for '
-                         f'{expire_date.strftime("%Y-%m-%d %H:%M:%S")}.')
+                LOGGER.info(f'The event has been rescheduled in autonomous function for '
+                            f'{expire_date.strftime("%Y-%m-%d %H:%M:%S")}.')
             else:
-                log.info(f'There is already scheduled member removal based on activity on '
-                         f'{total["expires"].strftime("%Y-%m-%d %H:%M:%S")}, '
-                         f'so autonomous function could not schedule a new removal.')
+                LOGGER.info(f'There is already scheduled member removal based on activity on '
+                            f'{total["expires"].strftime("%Y-%m-%d %H:%M:%S")}, '
+                            f'so autonomous function could not schedule a new removal.')
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -178,10 +176,16 @@ class Admin(commands.Cog):
                       usage='<prefix_to_set>\n\n'
                             'For setting multiple prefix, use: "! ? - ...."\n\n'
                             'Ex: !set_prefix "! -"', aliases=['s_p'])
-    @commands.has_any_role(*ADMIN_ROLE_NAMES)
+    @checkers.has_any_config_role("valid_stats_roles")
     @commands.guild_only()
     @commands.cooldown(1, 5, commands.BucketType.guild)
     async def set_prefix(self, ctx, prefix: str):
+        try:
+            guild_cf, cog_cf = helpers.get_common_settings(ctx.guild.id, ctx.cog.qualified_name.lower())
+        except ValueError as err:
+            return await ctx.send(err)
+
+        short_delay = cog_cf.get_float("short_delay")
         guild = ctx.guild
         prefixes = prefix.split(' ')
         await self.bot.set_guild_prefixes(guild, prefixes)
@@ -195,6 +199,14 @@ class Admin(commands.Cog):
     @commands.guild_only()
     @commands.cooldown(1, 5, commands.BucketType.guild)
     async def change_permission(self, ctx):
+        try:
+            guild_cf, cog_cf = helpers.get_common_settings(ctx.guild.id, ctx.cog.qualified_name.lower())
+        except ValueError as err:
+            return await ctx.send(err)
+
+        short_delay = guild_cf.find_cog_setting("short_delay")
+        base_json_dir = guild_cf.find_cog_setting("base_json_dir")
+
         sent_messages = [ctx.message]
         try:
             pseudo_path = os.path.join(base_json_dir, "*.json")
@@ -800,49 +812,81 @@ class Admin(commands.Cog):
     async def role(self, ctx):
         pass
 
-    @role.command(name='list', help='List the user with given roles',
+    @staticmethod
+    def create_pages(paginator):
+        """ Wrap the page building property of paginator to use in multi-processing executer"""
+        return paginator.pages
+
+    @role.command(name='list', help='List the members with given roles',
                   usage='<@roles> <is_cs>\n\n'
                         'roles: list[Role], required - role mentions, ids, or names to be processed\n'
-                        'is_cs: bool, default False - output member name with comma separated format or not\n'
+                        'op_type: int, default 1 - the format of each element. '
+                        '1: member ID | 2: member nick | 3: member display name | 4: member raw mention\n'
+                        'separator: str, default " " - separator string between elements.'
+                        ' Use nl for newline character.\n'
                         'If multiple roles given, the intersection fo them will be listed.\n\n'
                         'Ex: !role list @Yabancılar',
                   aliases=['l'])
     @commands.guild_only()
-    async def list_role(self, ctx, roles: commands.Greedy[Role], is_cs: typing.Optional[bool] = False):
+    async def list_role(self, ctx, roles: commands.Greedy[Role],
+                        op_type: typing.Optional[int] = 1,
+                        delete_after: typing.Optional[bool] = True, *,
+                        separator: typing.Optional[str] = " "
+                        ):
         sent_messages = [ctx.message]
         try:
             if not roles:
                 raise commands.BadArgument('No role is not given.')
 
-            members = []
+            member_texts = []
             guild = ctx.guild
-            for member in guild.members:
+            for index, member in enumerate(guild.members):
                 member_roles = member.roles
                 if member_roles:
                     check_all = all([True if role in member_roles else False for role in roles])
                     if check_all:
-                        members.append(member)
+                        if op_type == 1:
+                            member_text = str(member.id)
+                        elif op_type == 2:
+                            member_text = member.nick
+                        elif op_type == 3:
+                            member_text = member.display_name
+                        elif op_type == 4:
+                            member_text = member.mention
+                        else:
+                            raise ValueError(f"Unknown operation type given: {op_type}")
 
-            member_text = None
-            if members:
-                if not is_cs:
-                    member_text = '\n'.join([member.mention for member in members])
-                else:
-                    member_text = ','.join([member.name for member in members])
+                        member_texts.append(member_text)
 
-            role_text = ', '.join([role.name for role in roles])
-            embed_dict = {"title": f"Members for roles: {role_text}",
-                          'fields': [
-                              {'name': "Members", 'value': (member_text if member_text else 'No member found'), 'inline': False},
-                          ],
-                          }
-            e = CustomEmbed.from_dict(embed_dict, author_name=ctx.author.name,
-                                      avatar_url=self.bot.user.avatar_url,
-                                      is_thumbnail=False)
-            return await ctx.send(embed=e.to_embed(), delete_after=mid_delay)
+            if member_texts:
+                if separator == "nl":
+                    separator = "\n"
+
+                member_texts = f"{separator}".join(member_texts)
+                paginator = pag.Paginator(line_break=separator).add(member_texts)
+
+                # role_text = ', '.join([role.name for role in roles])
+
+                with ProcessPoolExecutor() as pool:
+                    pages = await self.bot.loop.run_in_executor(pool, self.create_pages, paginator)
+                    for page in pages:
+                        page = f"```" \
+                               f"{page}" \
+                               f"```"
+                        msg = await ctx.send(page)
+                        sent_messages.append(msg)
+                    # log.info(pages)
+
+            else:
+                return await ctx.send("No member found.", delete_after=short_delay)
+
+        except Exception as err:
+            log.error(err)
+            return await ctx.send(err, delete_after=short_delay)
 
         finally:
-            await helpers.cleanup_messages(ctx.channel, sent_messages, delete_after=mid_delay)
+            if delete_after:
+                await helpers.cleanup_messages(ctx.channel, sent_messages, delete_after=mid_delay)
 
     @role.command(name='list_update', help='List last 10 role update events',
                   usage="Ex: !role list_update", aliases=['l_u'])

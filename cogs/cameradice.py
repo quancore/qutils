@@ -4,14 +4,12 @@ import random
 import typing
 import itertools
 
-from discord import Embed, TextChannel, VoiceChannel, VoiceState, Member
+from discord import TextChannel, VoiceChannel, VoiceState, Member
 from discord.ext import commands
-from utils.formats import CustomEmbed
 
-from config import max_lost_member, ADMIN_ROLE_NAMES, start_game_delay, VALID_STATS_ROLES, short_delay, mid_delay
+from utils.config import max_lost_member, ADMIN_ROLE_NAMES, start_game_delay, VALID_STATS_ROLES, short_delay, mid_delay
 
 from utils import helpers
-from libneko import pag
 
 log = logging.getLogger('root')
 

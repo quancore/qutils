@@ -1,5 +1,4 @@
 import random
-from collections import defaultdict
 import os
 import asyncio
 
@@ -7,9 +6,7 @@ import asyncio
 from discord.ext import commands
 
 import logging
-from config import ADMIN_CHANNEL_ID, mid_delay, short_delay, base_truthdare_dir
-from utils import helpers
-from utils.formats import CustomEmbed
+from utils.config import mid_delay, short_delay, base_truthdare_dir
 
 log = logging.getLogger('root')
 

@@ -1,0 +1,78 @@
+auth:
+  BOT_TOKEN: str()
+  CLIENT_ID: str()
+  SENTRY_URL: regex("https://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+", name="url pattern", ignore_case=True, required=False)
+
+db:
+  PGHOST: str()
+  PGPORT: int(min=1, max=65535)
+  PGDATABASE: str()
+  PGUSER: str()
+  PGPASSWORD: str()
+
+api_keys: map(str(), key=str())
+bot_settings:
+  logger_name: str(required=False)
+  log_level: enum("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", required=False)
+  owner_ids: list(int, min=1, required=False)
+
+guilds: list(include("guild"), min=1)
+
+---
+guild:
+  # Guild ID
+  ID: include("ID_template")
+  # Prefix list of the bot for this guild
+  PREFIX: list(str(), min=1, required=False)
+  # Discord channels for this guild
+  channels: map(include("ID_template"), key=str(), required=False)
+  # Discord role map for the bot
+  roles:
+    # helper Discord roles such as stranger role, bot role etc.
+    HELPER_ROLES: map(include("basic_role_template"), key=str(), required=False)
+    HIERARCHY_ROLES: map(include("hierarchy_role_template"), key=int(), required=False)
+    GENDER_ROLES: list(include("ID_template"), min=1, required=False)
+  # various cog settings for this guild
+  cogs:
+    all_guild_roles: list(include("ID_template"), min=1, required=False)
+    all_valid_roles: list(include("ID_template"), min=1, required=False)
+    activity_included_roles: list(include("ID_template"), min=1, required=False)
+    admin_roles: list(include("ID_template"), min=1, required=False)
+    short_delay: int(min=0, max=1000, required=False)
+    mid_delay: int(min=0, max=1000, required=False)
+    long_delay: int(min=0, max=1000, required=False)
+    general:
+      activity_schedule_gap: str(min=1, required=False)
+      role_upgrade_gap: str(min=1, required=False)
+      activity_min_day: int(min=0, max=100, required=False)
+      base_json_dir: str(min=1, required=False)
+      activity_template: str(min=1, required=False)
+      activity_pm_template: str(min=1, required=False)
+      removed_member_pm_template: str(min=1, required=False)
+      role_upgrade_template: str(min=1, required=False)
+    confession:
+      message_timeout: int(min=0, max=1000, required=False)
+      warn_limit: int(min=0, max=10, required=False)
+      command_cooldown: int(min=0, max=10000, required=False)
+      valid_confession_roles: list(include("ID_template"), min=1, required=False)
+    camdice:
+      max_lost_member: int(min=1, max=15, required=False)
+      start_game_delay: int(min=0, max=600, required=False)
+    truthdare:
+      base_truthdare_dir: str(min=1, required=False)
+    automation:
+      num_announce_days: int(min=1, max=15, required=False)
+      announcement_template: str(min=1, required=False)
+---
+# hierarchy role template given by sexual orientation of members
+hierarchy_role_template:
+  ID: include("ID_template") # member id
+  TONEXT: int(min=0, max=1000, required=False) # how many day required to next level role
+  NEXTID: include("ID_template", required=False) # next level role ID when role upgrade
+
+# basic Discord role template with only role ID
+basic_role_template:
+  ID: include("ID_template")
+
+# basic Discord snowflake ID template
+ID_template: int()

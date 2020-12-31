@@ -65,7 +65,8 @@ class Context(commands.Context):
                 try:
                     return matches[index - 1]
                 except:
-                    await self.send(f'Please give me a valid number. {2 - i} tries remaining...', delete_after=delete_after)
+                    await self.send(f'Please give me a valid number. {2 - i} tries remaining...',
+                                    delete_after=delete_after)
 
             raise ValueError('Too many tries. Goodbye.')
         finally:

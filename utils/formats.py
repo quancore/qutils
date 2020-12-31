@@ -301,8 +301,3 @@ class EmbedGenerator(pag.AbstractEmbedGenerator):
                          icon_url=embed.footer['icon_url'])
 
         return embed
-
-
-@pag.embed_generator(max_chars=2048)
-def cooler_embed(paginator, page, page_index, context=None):
-    return Embed.from_dict(context)

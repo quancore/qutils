@@ -3,7 +3,7 @@
 import sentry_sdk
 
 from launcher import bot
-from config import BOT_TOKEN, SENTRY_URL
+from utils.config import BOT_TOKEN, SENTRY_URL
 
 
 def main():
