@@ -1,0 +1,8 @@
+# fly.toml file generated for qutils on 2022-12-04T17:30:29+01:00
+
+app = "qutils"
+kill_signal = "SIGINT"
+kill_timeout = 5
+processes = []
+
+[env]
