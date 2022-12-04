@@ -94,8 +94,9 @@ def run_bot():
         try:
             pool = loop.run_until_complete(Table.create_pool(postgres_config.return_connection_str(), command_timeout=60))
         except Exception as e:
-            click.echo(f'Could not set up PostgreSQL. Exiting: {str(e)}', file=sys.stderr)
-            log.exception(f'Could not set up PostgreSQL. Exiting: {str(e)}')
+            import traceback
+            click.echo(f'Could not set up PostgreSQL. Exiting\n: {traceback.format_exc()}', file=sys.stderr)
+            log.exception(f'Could not set up PostgreSQL. Exiting\n: {traceback.format_exc()}')
             return
         else:
             bot.pool = pool
