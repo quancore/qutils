@@ -522,11 +522,6 @@ class Table(metaclass=TableMeta):
             if old_init is not None:
                 await old_init(con)
 
-        # ctx = ssl.create_default_context(cafile='./rds-combined-ca-bundle.pem')
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        #cls._pool = pool = await asyncpg.create_pool(uri, ssl=ctx, init=init, **kwargs)
         cls._pool = pool = await asyncpg.create_pool(uri, init=init, **kwargs)
 
 
