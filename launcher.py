@@ -91,11 +91,10 @@ def run_bot():
         log = logging.getLogger('root')
         bot.log = log
         """Entry point for poetry script."""
-
         try:
             pool = loop.run_until_complete(Table.create_pool(postgres_config.return_connection_str(), command_timeout=60))
         except Exception as e:
-            click.echo('Could not set up PostgreSQL. Exiting.', file=sys.stderr)
+            click.echo(f'Could not set up PostgreSQL. Exiting: {str(e)}', file=sys.stderr)
             log.exception(f'Could not set up PostgreSQL. Exiting: {str(e)}')
             return
         else:
