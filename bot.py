@@ -50,7 +50,7 @@ class Qutils(commands.AutoShardedBot):
     def __init__(self, intents):
         super().__init__(command_prefix=_prefix_callable, description=description, case_insensitive=True,
                          pm_help=None, help_attrs=dict(hidden=True), fetch_offline_members=True,
-                         activity=discord.Game(name=":help for mods"), intents=intents
+                         activity=discord.Game(name="?help for mods"), intents=intents
                          )
 
         self.client_id = bot_config.auth.client_id

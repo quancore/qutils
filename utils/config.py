@@ -17,7 +17,8 @@ load_dotenv()
 # DEPLOY = bool(environ.get('DEPLOY'))
 
 # YAML config file path
-CONFIG_FILE_PATH = "config.yaml"
+#CONFIG_FILE_PATH = ",/configs/config.yaml"
+CONFIG_FILE_PATH = ",/configs/test_config.yaml"
 # a template file use for validating YAML config file
 SCHEMA_FILE_PATH = "schema.yaml"
 
@@ -100,12 +101,12 @@ class PostgreSQL(metaclass=Singleton):
         """ Initialize or update class attributes """
         if cls.__RAW_CONFIG is None or (cls.__RAW_CONFIG and cls.__RAW_CONFIG != db_conf):
             cls.__RAW_CONFIG = db_conf
-            cls.__PGHOST = db_conf.get_str("PGHOST", "")
-            cls.__PGPORT = db_conf.get_str("PGPORT", "")
-            cls.__PGDATABASE = db_conf.get_str("PGDATABASE", "")
-            cls.__PGUSER = db_conf.get_str("PGUSER", "")
-            cls.__PGPASSWORD = db_conf.get_str("PGPASSWORD", "")
-            cls.__DB_URL = db_conf.get_str("DB_URL", "")
+            cls.__PGHOST = db_conf.get_str("PGHOST", "") or Config.get_env("PGHOST")
+            cls.__PGPORT = db_conf.get_str("PGPORT", "") or Config.get_env("PGPORT")
+            cls.__PGDATABASE = db_conf.get_str("PGDATABASE", "") or Config.get_env("PGDATABASE")
+            cls.__PGUSER = db_conf.get_str("PGUSER", "") or Config.get_env("PGUSER")
+            cls.__PGPASSWORD = db_conf.get_str("PGPASSWORD", "") or Config.get_env("PGPASSWORD")
+            cls.__DB_URL = db_conf.get_str("DB_URL", "") or Config.get_env("DATABASE_URL")
 
     @property
     def db_conf(self) -> benedict:
@@ -356,7 +357,7 @@ class Config(metaclass=Singleton):
         return Config.__CONFIG_FILE_PATH
 
     @staticmethod
-    def get_env(name: str, fallback: typing.Union[str, None]) -> str:
+    def get_env(name: str, fallback: typing.Optional[str] = None) -> typing.Optional[str]:
         """Get an env var.
         :param name: Name of env. var.
         :param fallback: Any fallback value if not found.

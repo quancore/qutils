@@ -1,0 +1,8 @@
+auth:
+  BOT_TOKEN: Nzk1NDQ4OTY3OTU3NTc3NzI4.GUAfND.-wZeFD4GBA4iivYffiLZtIgsVIo30fY0mYhu4o
+  CLIENT_ID: 795448967957577728
+
+db:
+  DB_URL: postgres://postgres:B6yCQPQe0eoqwPB@localhost:5432
+
+guilds: [648262260724203523]

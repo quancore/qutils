@@ -1,0 +1,17 @@
+name: qutils
+channels:
+  - pip
+  - defaults
+  - conda-forge
+dependencies:
+  - aiohttp==3.8.3
+  - asyncpg==0.27.0
+  - python-dotenv==0.21.0
+  - python-benedict==0.27.1
+  - ruyaml==0.91.0
+  - yamale==4.0.4
+  - coloredlogs==15.0.1
+  - pip
+  - pip:
+    - discord.py==2.1.0
+    - libneko==0.24.9

@@ -1,6 +1,6 @@
 FROM continuumio/miniconda3:latest
 ARG CONDA_DIR="/opt/conda"
-ARG conda_env=disc
+ARG conda_env=qutils
 ENV conda_env=$conda_env
 
 # Add the user that will run the app (no need to run as root)
